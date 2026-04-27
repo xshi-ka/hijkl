@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="id">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Xshi Kotoba</title>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+<div class="app">
+  <div class="topbar">
+    <div class="brand">
+      <h1>Xshi Kotoba</h1>
+      <div class="subtitle">Latihan kanji, romaji, arti</div>
+    </div>
+    <div class="pill" id="storageStatus">x</div>
+  </div>
+
+  <section id="welcomePage" class="welcome">
+    <div class="card center">
+      <div class="title-big">KOTOBA SYSTEM</div>
+      <p class="subtitle">Pilih BAB latihan atau import file Excel Anda.</p>
+
+      <div style="margin:16px 0;text-align:left">
+        <label>Pilih BAB</label>
+        <select id="babSelect"></select>
+      </div>
+
+      <div class="mobile-actions">
+        <button onclick="startLatihan()">Mulai Latihan</button>
+        <button class="secondary" onclick="openKelola()">Kelola Data</button>
+      </div>
+
+      <hr style="border-color:rgba(255,255,255,.08);margin:18px 0">
+
+      <div style="text-align:left">
+        <label>Import data.xlsx</label>
+        <input type="file" id="excelInput" accept=".xlsx,.xls" />
+        <p class="small">Format sheet: Hide | Kanji | Kana | Romaji | Arti. Kalau file lama belum ada kolom Hide, sistem akan mencoba membaca otomatis.</p>
+      </div>
+
+      <div class="row" style="margin-top:12px">
+        <button class="secondary" onclick="downloadExcel()">Export Excel</button>
+        <button class="danger" onclick="resetData()">Reset Data</button>
+      </div>
+    </div>
+  </section>
+
+  <section id="latihanPage" class="hidden">
+  <div class="card latihan-card">
+
+    <div class="latihan-row">
+      <div>
+        <b id="activeBabText">BAB aktif</b>
+      </div>
+    </div>
+
+    <button class="warn latihan-full-button" onclick="penak()">Penak (skip aku)</button>
+
+<div class="latihan-action-row">
+  <button
+    class="secondary"
+    onmousedown="showKana()"
+    onmouseup="hideKana()"
+    ontouchstart="showKana()"
+    ontouchend="hideKana()">
+    Kana
+  </button>
+
+  <button onclick="cekJawaban()">Cek Jawaban</button>
+</div>
+
+<div class="kanji-box" id="kanjiBox">
+  <div class="kana kana-inside" id="kanaBox"></div>
+
+  <div class="kanji-text" id="kanjiText">Kanji</div>
+
+  <div id="answerHint" class="answer-hint"></div>
+</div>
+
+<div class="latihan-input-group">
+  <label>Romaji</label>
+  <input id="romajiInput" autocomplete="off" />
+</div>
+
+<div class="latihan-input-group">
+  <label>Arti</label>
+  <input id="artiInput" autocomplete="off" />
+</div>
+
+<div id="answerHint" class="answer-hint"></div>
+
+<button class="secondary latihan-full-button" onclick="goWelcome()">Ganti BAB</button>
+</section>
+
+  <section id="kelolaPage" class="hidden">
+    <div class="card">
+      <div class="row" style="justify-content:space-between">
+        <div>
+          <h2 style="margin:0;color:var(--line)">Kelola Data Kotoba</h2>
+          <div class="small">Edit langsung, paste dari Excel, lalu simpan.</div>
+        </div>
+        <button class="secondary" onclick="goWelcome()">Kembali</button>
+      </div>
+
+      <div style="margin-top:12px">
+        <label>Pilih BAB</label>
+        <select id="babKelolaSelect"></select>
+      </div>
+
+      <div class="stats">
+        <div class="stat">Jumlah Data: <b id="statTotal">0</b></div>
+        <div class="stat">Hafal: <b id="statHafal">0</b></div>
+        <div class="stat">Lali: <b id="statLali">0</b></div>
+      </div>
+
+      <div class="row" style="margin-bottom:10px">
+        <button class="secondary" onclick="addRow()">Tambah</button>
+        <button class="danger" onclick="deleteSelected()">Delete</button>
+        <button class="secondary" onclick="hideAll(true)">Hide All</button>
+        <button class="secondary" onclick="hideAll(false)">Unhide All</button>
+        <button onclick="saveLocal()">Simpan</button>
+      </div>
+
+      <details style="margin-bottom:10px">
+        <summary class="small">Paste dari Excel</summary>
+        <textarea id="pasteBox" placeholder="Paste data 4 kolom dari Excel: Kanji<TAB>Kana<TAB>Romaji<TAB>Arti"></textarea>
+        <button style="margin-top:8px" class="secondary" onclick="pasteFromTextArea()">Masukkan ke Tabel</button>
+      </details>
+
+      <div class="table-wrap">
+        <table id="dataTable">
+          <thead>
+            <tr>
+              <th onclick="sortHideFirst()" style="cursor:pointer">Hide</th>
+              <th>Kanji</th>
+              <th>Kana</th>
+              <th>Romaji</th>
+              <th>Arti</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script src="script.js"></script>
+</body>
+</html>
