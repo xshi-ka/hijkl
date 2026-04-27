@@ -14,16 +14,18 @@
       <h1>Xshi Kotoba</h1>
       <div class="subtitle">Latihan kanji, romaji, arti</div>
     </div>
-    <div class="pill" id="storageStatus">x</div>
+    <div class="pill" id="storageStatus">xxxxxxx</div>
   </div>
 
   <section id="welcomePage" class="welcome">
     <div class="card center">
-      <div class="title-big">KOTOBA SYSTEM</div>
-      <p class="subtitle">Pilih BAB latihan atau import file Excel Anda.</p>
+      <div class="title-big">Hallo Hallo</div>
+      <p class="subtitle">Pilih mana yang mau dilatih.</p>
+      <p class="subtitle">Upload dulu file .xlsx, lek gk ndue WA o aku</p>
+
 
       <div style="margin:16px 0;text-align:left">
-        <label>Pilih BAB</label>
+        <label>Pilih Data Kotoba</label>
         <select id="babSelect"></select>
       </div>
 
@@ -35,9 +37,9 @@
       <hr style="border-color:rgba(255,255,255,.08);margin:18px 0">
 
       <div style="text-align:left">
-        <label>Import data.xlsx</label>
+        <label>lek ndue data.xlsx</label>
         <input type="file" id="excelInput" accept=".xlsx,.xls" />
-        <p class="small">Format sheet: Hide | Kanji | Kana | Romaji | Arti. Kalau file lama belum ada kolom Hide, sistem akan mencoba membaca otomatis.</p>
+       
       </div>
 
       <div class="row" style="margin-top:12px">
@@ -52,11 +54,11 @@
 
     <div class="latihan-row">
       <div>
-        <b id="activeBabText">BAB aktif</b>
+        <b id="activeBabText">List kotoba yang akan ditampilkan</b>
       </div>
     </div>
 
-    <button class="warn latihan-full-button" onclick="penak()">Penak (skip aku)</button>
+    <button class="warn latihan-full-button" onclick="penak()">Wes Apal Iki, SKIPPP</button>
 
 <div class="latihan-action-row">
   <button
@@ -68,7 +70,9 @@
     Kana
   </button>
 
-  <button onclick="cekJawaban()">Cek Jawaban</button>
+  <button id="cekJawabanBtn" onclick="handleCekJawaban()">
+    Cek Jawaban
+  </button>
 </div>
 
 <div class="kanji-box" id="kanjiBox">
@@ -81,12 +85,27 @@
 
 <div class="latihan-input-group">
   <label>Romaji</label>
-  <input id="romajiInput" autocomplete="off" />
+<input
+  id="romajiInput"
+  type="search"
+  autocomplete="off"
+  autocorrect="off"
+  autocapitalize="none"
+  spellcheck="false"
+  inputmode="latin"
+/>
 </div>
 
 <div class="latihan-input-group">
   <label>Arti</label>
-  <input id="artiInput" autocomplete="off" />
+<input
+  id="artiInput"
+  type="search"
+  autocomplete="off"
+  autocorrect="off"
+  autocapitalize="none"
+  spellcheck="false"
+/>
 </div>
 
 <div id="answerHint" class="answer-hint"></div>
