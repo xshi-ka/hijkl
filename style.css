@@ -268,3 +268,10 @@ input.answer-warn {
 .answer-hint.show-warn {
   color: var(--warn);
 }
+.kana-ok {
+  color: var(--ok) !important;
+}
+
+.kana-bad {
+  color: var(--danger) !important;
+}
