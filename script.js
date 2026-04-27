@@ -127,7 +127,7 @@ function startLatihan(){
   queue = [];
 
   const activeBabText = document.getElementById("activeBabText");
-  if(activeBabText) activeBabText.textContent = "BAB aktif: " + activeBab;
+  if(activeBabText) activeBabText.textContent = "List kotoba yang akan diacak: " + activeBab;
 
   showPage("latihanPage");
   nextQuestion();
@@ -193,7 +193,8 @@ function nextQuestion(){
 
     clearAnswerColors();
     sudahCek = false;
-
+      const cekJawabanBtn = document.getElementById("cekJawabanBtn");
+      if(cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
     return;
   }
 
@@ -211,7 +212,10 @@ function nextQuestion(){
 
   sudahCek = false;
 
-  setTimeout(() => romajiInput?.focus(), 50);
+const cekJawabanBtn = document.getElementById("cekJawabanBtn");
+if(cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
+
+setTimeout(() => romajiInput?.focus(), 50);
 }
 
 function showKana(){
@@ -297,7 +301,14 @@ function statusArti(user, correctList){
 
   return "salah";
 }
+function handleCekJawaban(){
+  if(sudahCek){
+    nextQuestion();
+    return;
+  }
 
+  cekJawaban();
+}
 function cekJawaban(){
   if(!current) return;
 
@@ -349,8 +360,12 @@ function cekJawaban(){
     kanaBox.classList.add(romajiOk ? "kana-ok" : "kana-bad");
   }
 
-  showKana();
-  sudahCek = true;
+ showKana();
+
+sudahCek = true;
+
+const cekJawabanBtn = document.getElementById("cekJawabanBtn");
+if(cekJawabanBtn) cekJawabanBtn.textContent = "Soal Selanjutnya";
 }
 function setInputStatus(input, status){
   if(status === "ok"){
@@ -405,10 +420,10 @@ document.getElementById("artiInput")?.addEventListener("keydown", e => {
     return;
   }
 
-  if(e.key === "Enter"){
-    e.preventDefault();
-    sudahCek ? nextQuestion() : cekJawaban();
-  }
+if(e.key === "Enter"){
+  e.preventDefault();
+  handleCekJawaban();
+}
 });
 
 document.addEventListener("keydown", e => {
