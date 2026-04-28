@@ -680,5 +680,152 @@ function resetData(){
   loadLocal();
   goWelcome();
 }
+function parseCsvLine(line){
+  const result = [];
+  let current = "";
+  let inQuotes = false;
 
+  for(let i = 0; i < line.length; i++){
+    const char = line[i];
+    const next = line[i + 1];
+
+    if(char === '"' && inQuotes && next === '"'){
+      current += '"';
+      i++;
+      continue;
+    }
+
+    if(char === '"'){
+      inQuotes = !inQuotes;
+      continue;
+    }
+
+    if(char === "," && !inQuotes){
+      result.push(current);
+      current = "";
+      continue;
+    }
+
+    current += char;
+  }
+
+  result.push(current);
+  return result;
+}
+
+function parseCsv(text){
+  const rows = [];
+  let currentLine = "";
+  let inQuotes = false;
+
+  for(let i = 0; i < text.length; i++){
+    const char = text[i];
+    const next = text[i + 1];
+
+    if(char === '"' && inQuotes && next === '"'){
+      currentLine += '""';
+      i++;
+      continue;
+    }
+
+    if(char === '"'){
+      inQuotes = !inQuotes;
+    }
+
+    if((char === "\n" || char === "\r") && !inQuotes){
+      if(currentLine.trim()){
+        rows.push(parseCsvLine(currentLine));
+      }
+
+      currentLine = "";
+
+      if(char === "\r" && next === "\n"){
+        i++;
+      }
+
+      continue;
+    }
+
+    currentLine += char;
+  }
+
+  if(currentLine.trim()){
+    rows.push(parseCsvLine(currentLine));
+  }
+
+  return rows;
+}
+const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AkdnfIK7QcuWVnP4P_ZNKzl0tMPynEwLYEAnhyoL3j_OubjMj7D5QAv8U2rQQkMkHiZT-zlPJAYh/pub?gid=0&single=true&output=csv";
+async function loadDataFromSpreadsheet(){
+  try{
+    const response = await fetch(SPREADSHEET_CSV_URL);
+
+    if(!response.ok){
+      throw new Error("Gagal mengambil data spreadsheet.");
+    }
+
+    const csvText = await response.text();
+    const rows = parseCsv(csvText);
+
+    if(rows.length <= 1){
+      throw new Error("Data spreadsheet kosong.");
+    }
+
+    const header = rows[0].map(x => String(x || "").trim().toLowerCase());
+    const dataRows = rows.slice(1);
+
+    const babIndex = header.indexOf("bab");
+    const hideIndex = header.indexOf("hide");
+    const kanjiIndex = header.indexOf("kanji");
+    const kanaIndex = header.indexOf("kana");
+    const romajiIndex = header.indexOf("romaji");
+    const artiIndex = header.indexOf("arti");
+
+    if(babIndex < 0 || kanjiIndex < 0 || kanaIndex < 0 || romajiIndex < 0 || artiIndex < 0){
+      throw new Error("Header wajib: Bab, Hide, Kanji, Kana, Romaji, Arti");
+    }
+
+    const next = {};
+
+    dataRows.forEach(row => {
+      const bab = String(row[babIndex] || "").trim();
+      const kanji = String(row[kanjiIndex] || "").trim();
+      const kana = String(row[kanaIndex] || "").trim();
+      const romaji = String(row[romajiIndex] || "").trim();
+      const arti = String(row[artiIndex] || "").trim();
+
+      if(!bab || (!kanji && !kana && !romaji && !arti)){
+        return;
+      }
+
+      if(!next[bab]){
+        next[bab] = [];
+      }
+
+      next[bab].push({
+        hide: parseBool(row[hideIndex]),
+        kanji: kanji,
+        kana: kana,
+        romaji: romaji,
+        arti: arti
+      });
+    });
+
+    if(Object.keys(next).length === 0){
+      throw new Error("Tidak ada data valid di spreadsheet.");
+    }
+
+    db = next;
+    activeBab = Object.keys(db)[0] || "";
+
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    saveSettings();
+    refreshBabSelects();
+
+  }catch(err){
+    console.error(err);
+    alert("Gagal mengambil data dari Spreadsheet. Data lokal akan dipakai.");
+  }
+}
 loadLocal();
+loadDataFromSpreadsheet();
