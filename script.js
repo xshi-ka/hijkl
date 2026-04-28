@@ -541,7 +541,7 @@ function hideAll(value){
   renderTable();
 }
 
-ffunction sortHideFirst(){
+function sortHideFirst(){
   sortHideAsc = !sortHideAsc;
 
   db[activeBab] = (db[activeBab] || []).sort((a,b) => {
