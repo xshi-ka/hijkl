@@ -767,63 +767,26 @@ function parseCsv(text){
   return rows;
 }
 const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AkdnfIK7QcuWVnP4P_ZNKzl0tMPynEwLYEAnhyoL3j_OubjMj7D5QAv8U2rQQkMkHiZT-zlPJAYh/pub?gid=0&single=true&output=csv";
+const SPREADSHEET_API_URL = "ISI_LINK_WEB_APP_APPS_SCRIPT_ANDA";
+
 async function loadDataFromSpreadsheet(){
   try{
-    const response = await fetch(SPREADSHEET_CSV_URL);
+    const response = await fetch(SPREADSHEET_API_URL);
 
     if(!response.ok){
       throw new Error("Gagal mengambil data spreadsheet.");
     }
 
-    const csvText = await response.text();
-    const rows = parseCsv(csvText);
+    const result = await response.json();
 
-    if(rows.length <= 1){
+    if(!result.success){
+      throw new Error(result.message || "Gagal membaca data.");
+    }
+
+    const next = result.data;
+
+    if(!next || Object.keys(next).length === 0){
       throw new Error("Data spreadsheet kosong.");
-    }
-
-    const header = rows[0].map(x => String(x || "").trim().toLowerCase());
-    const dataRows = rows.slice(1);
-
-    const babIndex = header.indexOf("bab");
-    const hideIndex = header.indexOf("hide");
-    const kanjiIndex = header.indexOf("kanji");
-    const kanaIndex = header.indexOf("kana");
-    const romajiIndex = header.indexOf("romaji");
-    const artiIndex = header.indexOf("arti");
-
-    if(babIndex < 0 || kanjiIndex < 0 || kanaIndex < 0 || romajiIndex < 0 || artiIndex < 0){
-      throw new Error("Header wajib: Bab, Hide, Kanji, Kana, Romaji, Arti");
-    }
-
-    const next = {};
-
-    dataRows.forEach(row => {
-      const bab = String(row[babIndex] || "").trim();
-      const kanji = String(row[kanjiIndex] || "").trim();
-      const kana = String(row[kanaIndex] || "").trim();
-      const romaji = String(row[romajiIndex] || "").trim();
-      const arti = String(row[artiIndex] || "").trim();
-
-      if(!bab || (!kanji && !kana && !romaji && !arti)){
-        return;
-      }
-
-      if(!next[bab]){
-        next[bab] = [];
-      }
-
-      next[bab].push({
-        hide: parseBool(row[hideIndex]),
-        kanji: kanji,
-        kana: kana,
-        romaji: romaji,
-        arti: arti
-      });
-    });
-
-    if(Object.keys(next).length === 0){
-      throw new Error("Tidak ada data valid di spreadsheet.");
     }
 
     db = next;
@@ -835,7 +798,7 @@ async function loadDataFromSpreadsheet(){
 
   }catch(err){
     console.error(err);
-    alert("Gagal mengambil data dari Spreadsheet. Data lokal akan dipakai.");
+    alert("Gagal mengambil data dari Spreadsheet:\n" + err.message);
   }
 }
 loadLocal();
