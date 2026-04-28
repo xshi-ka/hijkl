@@ -814,7 +814,7 @@ async function loadDataFromSpreadsheet(){
       }
 
       next[bab].push({
-        hide: parseBool(row[hideIndex]),
+        hide: hideIndex >= 0 ? parseBool(row[hideIndex]) : false,
         kanji: kanji,
         kana: kana,
         romaji: romaji,
@@ -835,7 +835,7 @@ async function loadDataFromSpreadsheet(){
 
   }catch(err){
     console.error(err);
-    alert("Gagal mengambil data dari Spreadsheet. Data lokal akan dipakai.");
+    alert("Gagal mengambil data dari Spreadsheet:\n" + err.message);
   }
 }
 loadLocal();
