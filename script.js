@@ -766,8 +766,7 @@ function parseCsv(text){
 
   return rows;
 }
-const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AkdnfIK7QcuWVnP4P_ZNKzl0tMPynEwLYEAnhyoL3j_OubjMj7D5QAv8U2rQQkMkHiZT-zlPJAYh/pub?gid=0&single=true&output=csv";
-const SPREADSHEET_API_URL = "ISI_LINK_WEB_APP_APPS_SCRIPT_ANDA";
+const SPREADSHEET_API_URL = "https://script.google.com/macros/s/AKfycbzhL5KlAvuBH9xOHUKTQLYhc7_WvKem-lF1UQp64vDhBVsgd3Rz9nMFn5Sxq8LY7t6S/exec";
 
 async function loadDataFromSpreadsheet(){
   try{
@@ -780,7 +779,7 @@ async function loadDataFromSpreadsheet(){
     const result = await response.json();
 
     if(!result.success){
-      throw new Error(result.message || "Gagal membaca data.");
+      throw new Error(result.message || "Gagal membaca data spreadsheet.");
     }
 
     const next = result.data;
