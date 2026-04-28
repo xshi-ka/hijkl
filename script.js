@@ -7,6 +7,7 @@ let current = null;
 let queue = [];
 let sudahCek = false;
 let selectedRows = new Set();
+let sortHideAsc = false;
 
 function defaultData(){
   return {
@@ -540,11 +541,21 @@ function hideAll(value){
   renderTable();
 }
 
-function sortHideFirst(){
-  db[activeBab] = (db[activeBab] || []).sort((a,b) =>
-    Number(b.hide) - Number(a.hide) ||
-    String(a.kanji).localeCompare(String(b.kanji))
-  );
+ffunction sortHideFirst(){
+  sortHideAsc = !sortHideAsc;
+
+  db[activeBab] = (db[activeBab] || []).sort((a,b) => {
+    const hideA = a.hide ? 1 : 0;
+    const hideB = b.hide ? 1 : 0;
+
+    if(sortHideAsc){
+      // Klik kedua: yang belum hide di atas
+      return hideA - hideB || String(a.kanji).localeCompare(String(b.kanji));
+    }
+
+    // Klik pertama: yang sudah hide di atas
+    return hideB - hideA || String(a.kanji).localeCompare(String(b.kanji));
+  });
 
   selectedRows.clear();
   renderTable();
