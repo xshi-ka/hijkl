@@ -1,6 +1,6 @@
 const STORAGE_KEY = "kotobaTrainerHtmlData.v1";
 const SETTINGS_KEY = "kotobaTrainerHtmlSettings.v1";
-
+ 
 let db = {};
 let activeBab = "";
 let current = null;
