@@ -390,7 +390,7 @@ function setInputStatus(input, status){
   input.style.background = "rgba(255, 95, 126, .08)";
 }
 
-function penak(){
+async function penak(){
   if(!current) return;
 
   const arr = db[activeBab] || [];
@@ -404,7 +404,15 @@ function penak(){
   if(item) item.hide = true;
 
   queue = queue.filter(x => x !== current);
+
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  saveSettings();
+
+  try{
+    await saveActiveBabToSpreadsheet();
+  }catch(err){
+    console.error(err);
+  }
 
   nextQuestion();
 }
@@ -801,7 +809,7 @@ async function loadDataFromSpreadsheet(){
     alert("Gagal mengambil data dari Spreadsheet:\n" + err.message);
   }
 }
-async function saveActiveBabToSpreadsheet(){
+async function saveActiveBabToSpreadsheet(showSuccessMessage = false){
   try{
     const items = db[activeBab] || [];
 
@@ -823,10 +831,17 @@ async function saveActiveBabToSpreadsheet(){
       throw new Error(result.message || "Gagal simpan ke spreadsheet.");
     }
 
-    alert("Data lokal dan spreadsheet berhasil disimpan.");
+    if(showSuccessMessage){
+      alert("Data lokal dan spreadsheet berhasil disimpan.");
+    }
   }catch(err){
     console.error(err);
-    alert("Data lokal tersimpan, tapi gagal kirim ke spreadsheet:\n" + err.message);
+
+    if(showSuccessMessage){
+      alert("Data lokal tersimpan, tapi gagal kirim ke spreadsheet:\n" + err.message);
+    }else{
+      throw err;
+    }
   }
 }
 loadLocal();
