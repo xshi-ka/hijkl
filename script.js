@@ -1,5 +1,7 @@
 const STORAGE_KEY = "kotobaTrainerHtmlData.v1";
 const SETTINGS_KEY = "kotobaTrainerHtmlSettings.v1";
+const SPREADSHEET_API_URL = "https://script.google.com/macros/s/AKfycbxo1khFrkItYEe9ZJs1DULP1aXtYRbXI_55zT2qvvwzeu8hxATqpIKI9mzmW2Ks8bJm/exec";
+const SPREADSHEET_API_TOKEN = "xshi-kotoba-token";
 
 let db = {};
 let activeBab = "";
@@ -45,7 +47,7 @@ function saveLocal(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
   saveSettings();
   renderTable();
-  alert("Data berhasil disimpan di browser.");
+  saveActiveBabToSpreadsheet();
 }
 
 function getSettings(){
@@ -769,61 +771,22 @@ function parseCsv(text){
 const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AkdnfIK7QcuWVnP4P_ZNKzl0tMPynEwLYEAnhyoL3j_OubjMj7D5QAv8U2rQQkMkHiZT-zlPJAYh/pub?gid=0&single=true&output=csv";
 async function loadDataFromSpreadsheet(){
   try{
-    const response = await fetch(SPREADSHEET_CSV_URL);
+    const response = await fetch(SPREADSHEET_API_URL);
 
     if(!response.ok){
       throw new Error("Gagal mengambil data spreadsheet.");
     }
 
-    const csvText = await response.text();
-    const rows = parseCsv(csvText);
+    const result = await response.json();
 
-    if(rows.length <= 1){
+    if(!result.success){
+      throw new Error(result.message || "Gagal membaca data spreadsheet.");
+    }
+
+    const next = result.data;
+
+    if(!next || Object.keys(next).length === 0){
       throw new Error("Data spreadsheet kosong.");
-    }
-
-    const header = rows[0].map(x => String(x || "").trim().toLowerCase());
-    const dataRows = rows.slice(1);
-
-    const babIndex = header.indexOf("bab");
-    const hideIndex = header.indexOf("hide");
-    const kanjiIndex = header.indexOf("kanji");
-    const kanaIndex = header.indexOf("kana");
-    const romajiIndex = header.indexOf("romaji");
-    const artiIndex = header.indexOf("arti");
-
-    if(babIndex < 0 || kanjiIndex < 0 || kanaIndex < 0 || romajiIndex < 0 || artiIndex < 0){
-      throw new Error("Header wajib: Bab, Hide, Kanji, Kana, Romaji, Arti");
-    }
-
-    const next = {};
-
-    dataRows.forEach(row => {
-      const bab = String(row[babIndex] || "").trim();
-      const kanji = String(row[kanjiIndex] || "").trim();
-      const kana = String(row[kanaIndex] || "").trim();
-      const romaji = String(row[romajiIndex] || "").trim();
-      const arti = String(row[artiIndex] || "").trim();
-
-      if(!bab || (!kanji && !kana && !romaji && !arti)){
-        return;
-      }
-
-      if(!next[bab]){
-        next[bab] = [];
-      }
-
-      next[bab].push({
-        hide: hideIndex >= 0 ? parseBool(row[hideIndex]) : false,
-        kanji: kanji,
-        kana: kana,
-        romaji: romaji,
-        arti: arti
-      });
-    });
-
-    if(Object.keys(next).length === 0){
-      throw new Error("Tidak ada data valid di spreadsheet.");
     }
 
     db = next;
@@ -838,5 +801,34 @@ async function loadDataFromSpreadsheet(){
     alert("Gagal mengambil data dari Spreadsheet:\n" + err.message);
   }
 }
+async function saveActiveBabToSpreadsheet(){
+  try{
+    const items = db[activeBab] || [];
+
+    const response = await fetch(SPREADSHEET_API_URL, {
+      method: "POST",
+      headers: {
+        "Content-Type": "text/plain;charset=utf-8"
+      },
+      body: JSON.stringify({
+        token: SPREADSHEET_API_TOKEN,
+        bab: activeBab,
+        items: items
+      })
+    });
+
+    const result = await response.json();
+
+    if(!result.success){
+      throw new Error(result.message || "Gagal simpan ke spreadsheet.");
+    }
+
+    alert("Data lokal dan spreadsheet berhasil disimpan.");
+  }catch(err){
+    console.error(err);
+    alert("Data lokal tersimpan, tapi gagal kirim ke spreadsheet:\n" + err.message);
+  }
+}
 loadLocal();
 loadDataFromSpreadsheet();
+
