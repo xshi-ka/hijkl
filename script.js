@@ -47,7 +47,7 @@ function saveLocal(){
   localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
   saveSettings();
   renderTable();
-  saveActiveBabToSpreadsheet();
+  saveActiveBabToSpreadsheet(true);
 }
 
 function getSettings(){
@@ -390,7 +390,7 @@ function setInputStatus(input, status){
   input.style.background = "rgba(255, 95, 126, .08)";
 }
 
-async function penak(){
+function penak(){
   if(!current) return;
 
   const arr = db[activeBab] || [];
@@ -404,15 +404,6 @@ async function penak(){
   if(item) item.hide = true;
 
   queue = queue.filter(x => x !== current);
-
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  saveSettings();
-
-  try{
-    await saveActiveBabToSpreadsheet();
-  }catch(err){
-    console.error(err);
-  }
 
   nextQuestion();
 }
