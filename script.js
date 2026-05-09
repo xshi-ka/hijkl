@@ -32,6 +32,9 @@ let pendingSheetAction = "";
 let pendingSheetSource = null;
 let activeSessionPool = [];
 
+let originalLocalDb = {};
+
+
 /* =========================
    Helpers
 ========================= */
@@ -161,6 +164,7 @@ function loadLocal() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     db = raw ? normalizeDb(JSON.parse(raw)) : {};
+    originalLocalDb = JSON.parse(JSON.stringify(db));
   } catch {
     db = {};
   }
@@ -176,6 +180,7 @@ function loadLocal() {
     showStatus("Data lokal ditemukan", "ok");
   } else {
     db = defaultData();
+    originalLocalDb = JSON.parse(JSON.stringify(db));
     activeBab = Object.keys(db)[0] || "";
     refreshBabSelects();
     setStorageStatus("Lokal", "ok");
@@ -186,6 +191,7 @@ function loadLocal() {
 function saveLocal(options = {}) {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    originalLocalDb = JSON.parse(JSON.stringify(db));
     saveSettings();
 
     setStorageStatus("Lokal", "ok");
@@ -277,6 +283,7 @@ async function doImportFromSpreadsheet(source) {
     const importedDb = await fetchSpreadsheetDb(source);
 
 db = importedDb;
+originalLocalDb = JSON.parse(JSON.stringify(db));
 activeBab = Object.keys(db)[0] || "";
 previewMode = false;
 previewDb = {};
@@ -810,14 +817,14 @@ function renderTable() {
       });
 
       tr.querySelectorAll("input").forEach((input) => {
-        input.addEventListener("change", () => {
-          const field = input.dataset.field;
-          if (!field) return;
+ input.addEventListener("change", () => {
+  const field = input.dataset.field;
+  if (!field) return;
 
-          item[field] = field === "hide" ? input.checked : input.value;
-          updateStats();
-          saveLocal({ skipRender: true });
-        });
+  item[field] = field === "hide" ? input.checked : input.value;
+  updateStats();
+  showStatus("Perubahan belum disimpan", "warn");
+});
 
         input.addEventListener("input", () => {
           const field = input.dataset.field;
@@ -991,6 +998,7 @@ async function importJsonFile(file) {
     }
 
     db = importedDb;
+    originalLocalDb = JSON.parse(JSON.stringify(db));
     activeBab =
       parsed.activeBab && db[parsed.activeBab]
         ? parsed.activeBab
@@ -1017,6 +1025,25 @@ activeSessionPool = [];
     alert("File JSON tidak valid.");
     showStatus("Gagal ambil data JSON", "warn");
   }
+}
+
+function resetLocalData() {
+  if (previewMode) return;
+  if (!originalLocalDb || Object.keys(originalLocalDb).length === 0) return;
+
+  db = JSON.parse(JSON.stringify(originalLocalDb));
+
+  if (!db[activeBab]) {
+    activeBab = Object.keys(db)[0] || "";
+  }
+
+  queue = [];
+  selectedRows.clear();
+
+  refreshBabSelects();
+  renderTable();
+  updateStats();
+  showStatus("Data lokal direset", "ok");
 }
 
 /* =========================
@@ -1309,3 +1336,5 @@ window.closeConfirmImport = closeConfirmImport;
 window.confirmImportSelected = confirmImportSelected;
 
 document.addEventListener("DOMContentLoaded", initApp);
+
+window.resetLocalData = resetLocalData;

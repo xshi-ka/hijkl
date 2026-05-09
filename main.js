@@ -3,20 +3,16 @@ const path = require("path");
 
 function createWindow() {
   const win = new BrowserWindow({
-    width: 500,
-    height: 900,
-    minWidth: 400,
-    minHeight: 700,
-    autoHideMenuBar: true,
-    backgroundColor: "#070a14",
-    title: "Xshi Kotoba",
+    width: 1000,
+    height: 700,
+    icon: path.join(__dirname, "icon.png"),
     webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      contextIsolation: true
     }
   });
 
-  win.loadFile(path.join(__dirname, "index.html"));
+  win.loadFile("index.html");
 }
 
 app.whenReady().then(() => {

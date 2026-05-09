@@ -11,7 +11,8 @@
     "appId": "com.xshi.kotoba",
     "productName": "Xshi Kotoba",
     "directories": {
-      "output": "dist"
+      "output": "dist",
+      "buildResources": "build"
     },
     "files": [
       "index.html",
@@ -20,7 +21,8 @@
       "main.js"
     ],
     "win": {
-      "target": "nsis"
+      "target": "nsis",
+      "icon": "icon.ico"
     },
     "nsis": {
       "oneClick": false,
@@ -33,7 +35,4 @@
     "electron": "^37.0.0",
     "electron-builder": "^26.0.12"
   }
-
-
-
 }
