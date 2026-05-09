@@ -50,71 +50,71 @@
       </div>
     </section>
 
-    <section id="latihanPage" class="hidden">
-      <div class="card latihan-card">
-        <div class="latihan-row">
-          <div>
-            <b id="activeBabText">List kotoba yang akan ditampilkan</b>
-          </div>
-        </div>
-
-        <button type="button" class="warn latihan-full-button" onclick="penak()">
-          Wes Apal Iki, SKIPPP
-        </button>
-
-        <div class="latihan-action-row">
-          <button
-            type="button"
-            class="secondary"
-            onmousedown="showKana()"
-            onmouseup="hideKana()"
-            onmouseleave="hideKana()"
-            ontouchstart="showKana()"
-            ontouchend="hideKana()">
-            Kana
-          </button>
-
-          <button type="button" id="cekJawabanBtn" onclick="handleCekJawaban()">
-            Cek Jawaban
-          </button>
-        </div>
-
-        <div class="kanji-box" id="kanjiBox">
-          <div class="kana kana-inside" id="kanaBox"></div>
-          <div class="kanji-text" id="kanjiText">Kanji</div>
-          <div id="answerHint" class="answer-hint"></div>
-        </div>
-
-        <div class="latihan-input-group">
-          <label for="romajiInput">Romaji</label>
-          <input
-            id="romajiInput"
-            type="search"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="none"
-            spellcheck="false"
-            inputmode="latin"
-          />
-        </div>
-
-        <div class="latihan-input-group">
-          <label for="artiInput">Arti</label>
-          <input
-            id="artiInput"
-            type="search"
-            autocomplete="off"
-            autocorrect="off"
-            autocapitalize="none"
-            spellcheck="false"
-          />
-        </div>
-
-        <button type="button" class="secondary latihan-full-button" onclick="goWelcome()">
-          Ganti BAB
-        </button>
+  <section id="latihanPage" class="hidden">
+  <div class="card latihan-card">
+    <div class="latihan-row">
+      <div>
+        <b id="activeBabText">List kotoba yang akan ditampilkan</b>
       </div>
-    </section>
+    </div>
+
+    <div class="latihan-action-row">
+      <button
+        type="button"
+        class="secondary"
+        onmousedown="showKana()"
+        onmouseup="hideKana()"
+        onmouseleave="hideKana()"
+        ontouchstart="showKana()"
+        ontouchend="hideKana()">
+        Hiragana
+      </button>
+
+      <button type="button" class="secondary" onclick="goWelcome()">
+        Ganti BAB
+      </button>
+    </div>
+
+    <button type="button" class="warn latihan-full-button" onclick="penak()">
+      Wes Apal Iki, SKIPPP
+    </button>
+
+    <div class="kanji-box" id="kanjiBox">
+      <div class="kana kana-inside" id="kanaBox"></div>
+      <div class="kanji-text" id="kanjiText">Kanji</div>
+      <div id="answerHint" class="answer-hint"></div>
+    </div>
+
+    <div class="latihan-input-group">
+      <label for="romajiInput">Romaji</label>
+      <input
+        id="romajiInput"
+        type="search"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="none"
+        spellcheck="false"
+        inputmode="latin"
+      />
+    </div>
+
+    <div class="latihan-input-group">
+      <label for="artiInput">Arti</label>
+      <input
+        id="artiInput"
+        type="search"
+        autocomplete="off"
+        autocorrect="off"
+        autocapitalize="none"
+        spellcheck="false"
+      />
+    </div>
+
+    <button type="button" id="cekJawabanBtn" class="latihan-full-button" onclick="handleCekJawaban()">
+      Cek Jawaban
+    </button>
+  </div>
+</section>
 
     <section id="kelolaPage" class="hidden">
       <div class="card">
