@@ -1,12 +1,19 @@
 const STORAGE_KEY = "kotobaTrainerHtmlData.v1";
 const SETTINGS_KEY = "kotobaTrainerHtmlSettings.v1";
+const LAST_SOURCE_KEY = "kotobaLastSpreadsheetSourceId.v1";
 
-const SPREADSHEET_API_URL = "";
-const SPREADSHEET_API_TOKEN = "";
-
-// Pakai CSV Google Sheet publik
-const SPREADSHEET_CSV_URL =
-  "https://docs.google.com/spreadsheets/d/1147-w0dWCnVqdB2ZbMqQJ2Yc-79w73w8tjZwK9gwPBM/export?format=csv&gid=0";
+const SPREADSHEET_SOURCES = [
+  {
+    id: "sp1",
+    label: "N4",
+    url: "https://docs.google.com/spreadsheets/d/1en_L8gmNtW07nQ3CfvNF1pVX2BJldN0sid23OzTiVVs/export?format=csv&gid=0"
+  },
+  {
+    id: "sp2",
+    label: "PM",
+    url: "https://docs.google.com/spreadsheets/d/1147-w0dWCnVqdB2ZbMqQJ2Yc-79w73w8tjZwK9gwPBM/export?format=csv&gid=0"
+  }
+];
 
 let db = {};
 let activeBab = "";
@@ -15,8 +22,14 @@ let queue = [];
 let sudahCek = false;
 let selectedRows = new Set();
 let sortHideAsc = false;
-let syncTimer = null;
-let isSyncing = false;
+
+let previewMode = false;
+let previewDb = {};
+let previewSourceLabel = "";
+let localBabBeforePreview = "";
+
+let pendingSheetAction = "";
+let pendingSheetSource = null;
 
 /* =========================
    Helpers
@@ -28,10 +41,6 @@ function $(id) {
 
 function qs(selector) {
   return document.querySelector(selector);
-}
-
-function qsa(selector) {
-  return Array.from(document.querySelectorAll(selector));
 }
 
 function norm(value) {
@@ -56,18 +65,9 @@ function escapeAttr(value) {
     .replace(/>/g, "&gt;");
 }
 
-function deepClone(obj) {
-  return JSON.parse(JSON.stringify(obj));
-}
-
-function showToast(message) {
-  console.log(message);
-}
-
 function setStorageStatus(source, type = "info") {
   const el = $("storageStatus");
   if (!el) return;
-
   el.textContent = source;
   el.dataset.type = type;
 }
@@ -75,16 +75,8 @@ function setStorageStatus(source, type = "info") {
 function showStatus(message, type = "info") {
   const el = $("syncStatus");
   if (!el) return;
-
   el.textContent = message;
   el.dataset.type = type;
-}
-
-function debounceSync() {
-  clearTimeout(syncTimer);
-  syncTimer = setTimeout(() => {
-    saveActiveBabToSpreadsheet(true);
-  }, 800);
 }
 
 /* =========================
@@ -94,37 +86,13 @@ function debounceSync() {
 function defaultData() {
   return {
     "PM Bab1": [
-      {
-        hide: false,
-        kanji: "学校",
-        kana: "がっこう",
-        romaji: "gakkou",
-        arti: "Sekolah",
-      },
-      {
-        hide: false,
-        kanji: "先生",
-        kana: "せんせい",
-        romaji: "sensei",
-        arti: "Guru",
-      },
+      { hide: false, kanji: "学校", kana: "がっこう", romaji: "gakkou", arti: "Sekolah" },
+      { hide: false, kanji: "先生", kana: "せんせい", romaji: "sensei", arti: "Guru" }
     ],
     "PM Bab2": [
-      {
-        hide: false,
-        kanji: "水",
-        kana: "みず",
-        romaji: "mizu",
-        arti: "Air",
-      },
-      {
-        hide: false,
-        kanji: "火",
-        kana: "ひ",
-        romaji: "hi",
-        arti: "Api",
-      },
-    ],
+      { hide: false, kanji: "水", kana: "みず", romaji: "mizu", arti: "Air" },
+      { hide: false, kanji: "火", kana: "ひ", romaji: "hi", arti: "Api" }
+    ]
   };
 }
 
@@ -134,7 +102,7 @@ function normalizeItem(item) {
     kanji: String(item?.kanji ?? "").trim(),
     kana: String(item?.kana ?? "").trim(),
     romaji: String(item?.romaji ?? "").trim(),
-    arti: String(item?.arti ?? "").trim(),
+    arti: String(item?.arti ?? "").trim()
   };
 }
 
@@ -180,7 +148,7 @@ function saveSettings() {
       SETTINGS_KEY,
       JSON.stringify({
         lastBab: activeBab,
-        sortHideAsc,
+        sortHideAsc
       })
     );
   } catch (err) {
@@ -206,9 +174,11 @@ function loadLocal() {
     setStorageStatus("Lokal", "ok");
     showStatus("Data lokal ditemukan", "ok");
   } else {
-    activeBab = "";
-    setStorageStatus("Belum ada", "warn");
-    showStatus("Data lokal kosong", "warn");
+    db = defaultData();
+    activeBab = Object.keys(db)[0] || "";
+    refreshBabSelects();
+    setStorageStatus("Lokal", "ok");
+    showStatus("Data lokal aktif", "ok");
   }
 }
 
@@ -230,13 +200,170 @@ function saveLocal(options = {}) {
 }
 
 /* =========================
+   Spreadsheet source helpers
+========================= */
+
+function saveLastSpreadsheetSource(sourceId) {
+  try {
+    localStorage.setItem(LAST_SOURCE_KEY, sourceId);
+  } catch {
+    // ignore
+  }
+}
+
+function getLastSpreadsheetSource() {
+  try {
+    return localStorage.getItem(LAST_SOURCE_KEY) || "";
+  } catch {
+    return "";
+  }
+}
+
+async function fetchSpreadsheetDb(source) {
+  if (!source || !source.url) {
+    throw new Error("Source spreadsheet tidak valid");
+  }
+
+  const res = await fetch(source.url, {
+    method: "GET",
+    cache: "no-store"
+  });
+
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+
+  const csvText = await res.text();
+  const rows = csvToObjects(csvText);
+
+  if (!rows.length) {
+    throw new Error("Spreadsheet kosong");
+  }
+
+  const grouped = {};
+
+  rows.forEach((row) => {
+    const bab = String(row.Bab || row.bab || "").trim();
+    if (!bab) return;
+
+    const item = {
+      hide:
+        String(row.Hide || row.hide || "").trim().toLowerCase() === "true" ||
+        String(row.Hide || row.hide || "").trim() === "1",
+      kanji: String(row.Kanji || row.kanji || "").trim(),
+      kana: String(row.Kana || row.kana || "").trim(),
+      romaji: String(row.Romaji || row.romaji || "").trim(),
+      arti: String(row.Arti || row.arti || "").trim()
+    };
+
+    if (!item.kanji && !item.kana && !item.romaji && !item.arti) return;
+
+    if (!grouped[bab]) grouped[bab] = [];
+    grouped[bab].push(item);
+  });
+
+  if (Object.keys(grouped).length === 0) {
+    throw new Error("Format spreadsheet tidak cocok");
+  }
+
+  return normalizeDb(grouped);
+}
+
+async function doImportFromSpreadsheet(source) {
+  try {
+    showStatus(`Mengambil ${source.label}...`, "info");
+
+    const importedDb = await fetchSpreadsheetDb(source);
+
+    db = importedDb;
+    activeBab = Object.keys(db)[0] || "";
+    previewMode = false;
+    previewDb = {};
+    previewSourceLabel = "";
+    localBabBeforePreview = "";
+
+    ensureDbValid();
+    refreshBabSelects();
+    renderTable();
+    updateStats();
+    saveLocal({ skipRender: true });
+
+    saveLastSpreadsheetSource(source.id);
+    setStorageStatus("Lokal", "ok");
+    showStatus(`Data aktif diambil dari ${source.label}`, "ok");
+  } catch (err) {
+    console.error(err);
+    showStatus(`Gagal ambil ${source.label}`, "warn");
+  }
+}
+
+async function doPreviewFromSpreadsheet(source) {
+  try {
+    showStatus(`Memuat preview ${source.label}...`, "info");
+
+    localBabBeforePreview = activeBab;
+
+    const importedDb = await fetchSpreadsheetDb(source);
+
+    previewMode = true;
+    previewDb = importedDb;
+    previewSourceLabel = source.label;
+
+    const firstBab = Object.keys(previewDb)[0] || "";
+    if (firstBab) {
+      activeBab = firstBab;
+    }
+
+    refreshBabSelects();
+    renderTable();
+    updateStats();
+
+    saveLastSpreadsheetSource(source.id);
+    setStorageStatus("Preview", "warn");
+    showStatus(`Preview ${source.label}`, "ok");
+  } catch (err) {
+    console.error(err);
+    showStatus(`Gagal preview ${source.label}`, "warn");
+  }
+}
+
+function importFromSpreadsheet() {
+  openSheetPicker("import");
+}
+
+function previewFromSpreadsheet() {
+  openSheetPicker("preview");
+}
+
+function closePreviewMode() {
+  previewMode = false;
+  previewDb = {};
+  previewSourceLabel = "";
+
+  if (localBabBeforePreview && db[localBabBeforePreview]) {
+    activeBab = localBabBeforePreview;
+  } else if (!db[activeBab]) {
+    activeBab = Object.keys(db)[0] || "";
+  }
+
+  localBabBeforePreview = "";
+
+  ensureDbValid();
+  refreshBabSelects();
+  renderTable();
+  updateStats();
+
+  setStorageStatus("Lokal", "ok");
+  showStatus("Kembali ke data lokal", "ok");
+}
+
+/* =========================
    BAB handling
 ========================= */
 
 function refreshBabSelects() {
-  ensureDbValid();
-
-  const babNames = Object.keys(db || {});
+  const sourceDb = previewMode ? previewDb : db;
+  const babNames = Object.keys(sourceDb || {});
   const babSelect = $("babSelect");
   const babKelolaSelect = $("babKelolaSelect");
 
@@ -245,8 +372,7 @@ function refreshBabSelects() {
   function fillSelect(selectEl) {
     if (!selectEl) return;
 
-    const selectedValue = selectEl.value || activeBab || babNames[0];
-
+    const selectedValue = sourceDb[activeBab] ? activeBab : babNames[0];
     selectEl.innerHTML = "";
 
     babNames.forEach((name) => {
@@ -256,11 +382,7 @@ function refreshBabSelects() {
       selectEl.appendChild(opt);
     });
 
-    if (db[selectedValue]) {
-      selectEl.value = selectedValue;
-    } else {
-      selectEl.value = babNames[0];
-    }
+    selectEl.value = selectedValue;
   }
 
   fillSelect(babSelect);
@@ -268,7 +390,8 @@ function refreshBabSelects() {
 }
 
 function setActiveBab(value) {
-  if (!db[value]) return;
+  const sourceDb = previewMode ? previewDb : db;
+  if (!sourceDb[value]) return;
 
   activeBab = value;
   queue = [];
@@ -283,7 +406,6 @@ function setActiveBab(value) {
   saveSettings();
   updateStats();
 }
-
 
 /* =========================
    Page nav
@@ -434,18 +556,7 @@ function rootSimple(s) {
   let k = norm(s);
 
   for (const p of [
-    "meng",
-    "meny",
-    "men",
-    "mem",
-    "ber",
-    "ter",
-    "per",
-    "pe",
-    "me",
-    "di",
-    "ke",
-    "se",
+    "meng", "meny", "men", "mem", "ber", "ter", "per", "pe", "me", "di", "ke", "se"
   ]) {
     if (k.startsWith(p) && k.length > p.length + 3) {
       k = k.slice(p.length);
@@ -625,70 +736,81 @@ function renderTable() {
   const tbody = qs("#dataTable tbody");
   if (!tbody) return;
 
-  ensureDbValid();
+  const sourceDb = previewMode ? previewDb : db;
+  const arr = sourceDb[activeBab] || [];
+  const previewBadge = $("previewInfo");
 
   tbody.innerHTML = "";
-  const arr = db[activeBab] || [];
+
+  if (previewBadge) {
+    if (previewMode) {
+      previewBadge.textContent = `Mode Preview: ${previewSourceLabel}`;
+      previewBadge.classList.remove("hidden");
+    } else {
+      previewBadge.textContent = "";
+      previewBadge.classList.add("hidden");
+    }
+  }
 
   arr.forEach((item, idx) => {
     const tr = document.createElement("tr");
 
-    if (selectedRows.has(idx)) {
+    if (!previewMode && selectedRows.has(idx)) {
       tr.classList.add("selected");
     }
 
-    tr.innerHTML = `
-      <td>
-        <input type="checkbox" data-field="hide" ${item.hide ? "checked" : ""} />
-      </td>
-      <td>
-        <input type="text" data-field="kanji" value="${escapeAttr(item.kanji)}" />
-      </td>
-      <td>
-        <input type="text" data-field="kana" value="${escapeAttr(item.kana)}" />
-      </td>
-      <td>
-        <input type="text" data-field="romaji" value="${escapeAttr(item.romaji)}" />
-      </td>
-      <td>
-        <input type="text" data-field="arti" value="${escapeAttr(item.arti)}" />
-      </td>
-    `;
+    if (previewMode) {
+      tr.innerHTML = `
+        <td><input type="checkbox" disabled ${item.hide ? "checked" : ""} /></td>
+        <td>${escapeHtml(item.kanji)}</td>
+        <td>${escapeHtml(item.kana)}</td>
+        <td>${escapeHtml(item.romaji)}</td>
+        <td>${escapeHtml(item.arti)}</td>
+      `;
+    } else {
+      tr.innerHTML = `
+        <td><input type="checkbox" data-field="hide" ${item.hide ? "checked" : ""} /></td>
+        <td><input type="text" data-field="kanji" value="${escapeAttr(item.kanji)}" /></td>
+        <td><input type="text" data-field="kana" value="${escapeAttr(item.kana)}" /></td>
+        <td><input type="text" data-field="romaji" value="${escapeAttr(item.romaji)}" /></td>
+        <td><input type="text" data-field="arti" value="${escapeAttr(item.arti)}" /></td>
+      `;
 
-    tr.addEventListener("click", (ev) => {
-      if (ev.target instanceof HTMLInputElement) return;
+      tr.addEventListener("click", (ev) => {
+        if (ev.target instanceof HTMLInputElement) return;
 
-      if (selectedRows.has(idx)) {
-        selectedRows.delete(idx);
-      } else {
-        selectedRows.add(idx);
-      }
+        if (selectedRows.has(idx)) {
+          selectedRows.delete(idx);
+        } else {
+          selectedRows.add(idx);
+        }
 
-      renderTable();
-    });
-
-    tr.querySelectorAll("input").forEach((input) => {
-      input.addEventListener("change", () => {
-        const field = input.dataset.field;
-        if (!field) return;
-
-        item[field] = field === "hide" ? input.checked : input.value;
-        updateStats();
-        saveLocal({ skipRender: true });
+        renderTable();
       });
 
-      input.addEventListener("input", () => {
-        const field = input.dataset.field;
-        if (!field || field === "hide") return;
+      tr.querySelectorAll("input").forEach((input) => {
+        input.addEventListener("change", () => {
+          const field = input.dataset.field;
+          if (!field) return;
 
-        item[field] = input.value;
-        updateStats();
-      });
+          item[field] = field === "hide" ? input.checked : input.value;
+          updateStats();
+          saveLocal({ skipRender: true });
+        });
 
-      input.addEventListener("blur", () => {
-        saveLocal({ skipRender: true });
+        input.addEventListener("input", () => {
+          const field = input.dataset.field;
+          if (!field || field === "hide") return;
+
+          item[field] = input.value;
+          updateStats();
+        });
+
+        input.addEventListener("blur", () => {
+          saveLocal({ skipRender: true });
+        });
       });
-    });
+    }
 
     tbody.appendChild(tr);
   });
@@ -697,7 +819,8 @@ function renderTable() {
 }
 
 function updateStats() {
-  const arr = db[activeBab] || [];
+  const sourceDb = previewMode ? previewDb : db;
+  const arr = sourceDb[activeBab] || [];
   const data = arr.filter((x) => x.kanji || x.kana || x.romaji || x.arti);
   const hafal = data.filter((x) => x.hide).length;
 
@@ -710,8 +833,9 @@ function updateStats() {
   if (statLali) statLali.textContent = data.length - hafal;
 }
 
-
 function hideAll(value) {
+  if (previewMode) return;
+
   (db[activeBab] || []).forEach((x) => {
     x.hide = value;
   });
@@ -721,6 +845,8 @@ function hideAll(value) {
 }
 
 function sortHideFirst() {
+  if (previewMode) return;
+
   sortHideAsc = !sortHideAsc;
 
   db[activeBab] = (db[activeBab] || []).sort((a, b) => {
@@ -736,10 +862,12 @@ function sortHideFirst() {
 
   selectedRows.clear();
   renderTable();
-  saveLocal({ skipSpreadsheet: true });
+  saveLocal({ skipRender: true });
 }
 
 function pasteFromTextArea() {
+  if (previewMode) return;
+
   const pasteBox = $("pasteBox");
   const text = pasteBox?.value.trim() || "";
 
@@ -757,7 +885,7 @@ function pasteFromTextArea() {
         kanji: p[0]?.trim() || "",
         kana: p[1]?.trim() || "",
         romaji: p[2]?.trim() || "",
-        arti: p.slice(3).join(" ").trim() || "",
+        arti: p.slice(3).join(" ").trim() || ""
       });
     }
   });
@@ -769,370 +897,20 @@ function pasteFromTextArea() {
 }
 
 /* =========================
-   Excel import / export
+   JSON file
 ========================= */
 
-function rowsToSheetData(rows) {
-  return [
-    ["Hide", "Kanji", "Kana", "Romaji", "Arti"],
-    ...rows.map((x) => [
-      x.hide ? 1 : 0,
-      x.kanji,
-      x.kana,
-      x.romaji,
-      x.arti,
-    ]),
-  ];
-}
-
-async function importExcelFile(file) {
-  if (!file) return;
-
-  if (typeof XLSX === "undefined") {
-    alert("Library Excel belum kebaca.");
-    return;
-  }
-
-  const buffer = await file.arrayBuffer();
-  const wb = XLSX.read(buffer, { type: "array" });
-
-  const firstSheetName = wb.SheetNames[0];
-  if (!firstSheetName) {
-    alert("Sheet Excel tidak ditemukan.");
-    return;
-  }
-
-  const ws = wb.Sheets[firstSheetName];
-  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
-
-  if (!db[activeBab]) db[activeBab] = [];
-
-  const imported = [];
-  for (let i = 1; i < rows.length; i += 1) {
-    const row = rows[i];
-    if (!row || row.length === 0) continue;
-
-    const item = normalizeItem({
-      hide:
-        row[0] === true ||
-        row[0] === 1 ||
-        String(row[0] || "").toLowerCase() === "true",
-      kanji: row[1],
-      kana: row[2],
-      romaji: row[3],
-      arti: row[4],
-    });
-
-    if (!item.kanji && !item.kana && !item.romaji && !item.arti) continue;
-    imported.push(item);
-  }
-
-  db[activeBab].push(...imported);
-  renderTable();
-  saveLocal();
-
-  alert(`Import berhasil: ${imported.length} data.`);
-}
-
-function exportExcel() {
-  if (typeof XLSX === "undefined") {
-    alert("Library Excel belum kebaca.");
-    return;
-  }
-
-  const wb = XLSX.utils.book_new();
-
-  for (const [babName, rows] of Object.entries(db)) {
-    const data = rowsToSheetData(rows);
-    const ws = XLSX.utils.aoa_to_sheet(data);
-    XLSX.utils.book_append_sheet(wb, ws, babName.slice(0, 31));
-  }
-
-  XLSX.writeFile(wb, "xshi-kotoba.xlsx");
-}
-
-function exportJson() {
-  const blob = new Blob([JSON.stringify(db, null, 2)], {
-    type: "application/json",
-  });
-  const url = URL.createObjectURL(blob);
-
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = "xshi-kotoba.json";
-  a.click();
-
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
-}
-
-function resetData() {
-  const ok = confirm("Reset semua data ke bawaan awal?");
-  if (!ok) return;
-
-  db = defaultData();
-  activeBab = Object.keys(db)[0] || "";
-  queue = [];
-  selectedRows.clear();
-
-  refreshBabSelects();
-  renderTable();
-  saveLocal();
-}
-
-/* =========================
-   Spreadsheet sync
-========================= */
-
-async function safeFetchJson(url, options = {}) {
-  const res = await fetch(url, options);
-  if (!res.ok) {
-    throw new Error(`HTTP ${res.status}`);
-  }
-  return res.json();
-}
-
-function extractDbFromSpreadsheetPayload(payload) {
-  if (!payload) return null;
-
-  if (payload.db && typeof payload.db === "object") {
-    return normalizeDb(payload.db);
-  }
-
-  if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) {
-    return normalizeDb(payload.data);
-  }
-
-  if (typeof payload === "object" && !Array.isArray(payload)) {
-    const values = Object.values(payload);
-    const seemsDb =
-      Object.keys(payload).length > 0 &&
-      values.every((v) => Array.isArray(v));
-    if (seemsDb) {
-      return normalizeDb(payload);
-    }
-  }
-
-  return null;
-}
-
-async function loadDataFromSpreadsheet(silent = true) {
-  if (!SPREADSHEET_CSV_URL) return false;
-
-  try {
-    showStatus("Mengambil data spreadsheet...", "info");
-
-    const res = await fetch(SPREADSHEET_CSV_URL, {
-      method: "GET",
-      cache: "no-store",
-    });
-
-    if (!res.ok) {
-      throw new Error(`HTTP ${res.status}`);
-    }
-
-    const csvText = await res.text();
-    const rows = csvToObjects(csvText);
-
-    if (!rows.length) {
-      showStatus("Spreadsheet kosong", "warn");
-      return false;
-    }
-
-    const grouped = {};
-
-    rows.forEach((row) => {
-      const bab = String(row.Bab || row.bab || "").trim();
-      if (!bab) return;
-
-      const item = {
-        hide:
-          String(row.Hide || row.hide || "").trim().toLowerCase() === "true" ||
-          String(row.Hide || row.hide || "").trim() === "1",
-        kanji: String(row.Kanji || row.kanji || "").trim(),
-        kana: String(row.Kana || row.kana || "").trim(),
-        romaji: String(row.Romaji || row.romaji || "").trim(),
-        arti: String(row.Arti || row.arti || "").trim(),
-      };
-
-      if (!item.kanji && !item.kana && !item.romaji && !item.arti) return;
-
-      if (!grouped[bab]) grouped[bab] = [];
-      grouped[bab].push(item);
-    });
-
-    if (Object.keys(grouped).length === 0) {
-      showStatus("Format spreadsheet tidak cocok", "warn");
-      return false;
-    }
-
-      const oldBab = activeBab;
-      db = normalizeDb(grouped);
-ensureDbValid();
-
-if (oldBab && db[oldBab]) {
-  activeBab = oldBab;
-} else {
-  activeBab = Object.keys(db)[0] || "";
-}
-
-localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-saveSettings();
-
-refreshBabSelects();
-renderTable();
-updateStats();
-
-setStorageStatus("Spreadsheet", "ok");
-showStatus("Data awal diambil dari spreadsheet", "ok");
-
-return true;
-  } catch (err) {
-    console.warn("Gagal load spreadsheet:", err);
-
-      setStorageStatus("Lokal", "warn");
-      showStatus("Gagal ambil spreadsheet", "warn");
-
-  if (!silent) {
-    alert("Gagal mengambil data dari spreadsheet.");
-  }
-
-  return false;
-  }
-}
-function parseCsvLine(line) {
-  const result = [];
-  let current = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < line.length; i++) {
-    const ch = line[i];
-    const next = line[i + 1];
-
-    if (ch === '"') {
-      if (inQuotes && next === '"') {
-        current += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (ch === "," && !inQuotes) {
-      result.push(current);
-      current = "";
-    } else {
-      current += ch;
-    }
-  }
-
-  result.push(current);
-  return result;
-}
-
-function csvToObjects(csvText) {
-  const rows = [];
-  let row = [];
-  let cell = "";
-  let inQuotes = false;
-
-  for (let i = 0; i < csvText.length; i++) {
-    const char = csvText[i];
-    const next = csvText[i + 1];
-
-    if (char === '"') {
-      if (inQuotes && next === '"') {
-        cell += '"';
-        i++;
-      } else {
-        inQuotes = !inQuotes;
-      }
-    } else if (char === "," && !inQuotes) {
-      row.push(cell);
-      cell = "";
-    } else if ((char === "\n" || char === "\r") && !inQuotes) {
-      if (char === "\r" && next === "\n") i++;
-      row.push(cell);
-      rows.push(row);
-      row = [];
-      cell = "";
-    } else {
-      cell += char;
-    }
-  }
-
-  if (cell.length > 0 || row.length > 0) {
-    row.push(cell);
-    rows.push(row);
-  }
-
-  if (!rows.length) return [];
-
-  const headers = rows[0].map(h => String(h || "").trim());
-
-  return rows
-    .slice(1)
-    .filter(r => r.some(v => String(v || "").trim() !== ""))
-    .map(r => {
-      const obj = {};
-      headers.forEach((h, i) => {
-        obj[h] = r[i] ?? "";
-      });
-      return obj;
-    });
-}
-
-async function postSpreadsheetJson(payload) {
-  return safeFetchJson(SPREADSHEET_API_URL, {
-    method: "POST",
-    headers: {
-      "Content-Type": "text/plain;charset=utf-8",
-    },
-    body: JSON.stringify(payload),
-  });
-}
-
-async function saveActiveBabToSpreadsheet(silent = true) {
-  if (!SPREADSHEET_API_URL || !SPREADSHEET_API_TOKEN) return false;
-  if (isSyncing) return false;
-
-  isSyncing = true;
-
-  try {
-    showStatus("Menyimpan ke spreadsheet...", "info");
-
-    const payload = {
-      token: SPREADSHEET_API_TOKEN,
-      action: "save",
-      activeBab,
-      db: deepClone(db),
-      rows: deepClone(db[activeBab] || []),
-      updatedAt: new Date().toISOString(),
-    };
-
-    await postSpreadsheetJson(payload);
-
-    showStatus("Tersimpan ke spreadsheet", "ok");
-    return true;
-  } catch (err) {
-    console.warn("Gagal simpan spreadsheet:", err);
-    showStatus("Gagal simpan spreadsheet", "warn");
-    if (!silent) {
-      alert("Gagal menyimpan ke Spreadsheet.");
-    }
-    return false;
-  } finally {
-    isSyncing = false;
-  }
-}
 function saveJsonFile() {
   try {
     const payload = {
       activeBab,
       sortHideAsc,
       db,
-      exportedAt: new Date().toISOString(),
+      exportedAt: new Date().toISOString()
     };
 
     const blob = new Blob([JSON.stringify(payload, null, 2)], {
-      type: "application/json",
+      type: "application/json"
     });
 
     const url = URL.createObjectURL(blob);
@@ -1176,6 +954,11 @@ async function importJsonFile(file) {
 
     sortHideAsc = !!parsed.sortHideAsc;
 
+    previewMode = false;
+    previewDb = {};
+    previewSourceLabel = "";
+    localBabBeforePreview = "";
+
     ensureDbValid();
     refreshBabSelects();
     renderTable();
@@ -1189,6 +972,158 @@ async function importJsonFile(file) {
     showStatus("Gagal ambil data JSON", "warn");
   }
 }
+
+/* =========================
+   Sheet picker modal
+========================= */
+
+function openSheetPicker(actionType) {
+  pendingSheetAction = actionType || "";
+  pendingSheetSource = null;
+
+  const modal = $("sheetPickerModal");
+  const list = $("sheetPickerList");
+  const title = $("sheetPickerTitle");
+  const desc = $("sheetPickerDesc");
+
+  if (!modal || !list) return;
+
+  if (title) {
+    title.textContent =
+      actionType === "preview" ? "Lihat Spreadsheet" : "Ambil Spreadsheet";
+  }
+
+  if (desc) {
+    desc.textContent =
+      actionType === "preview"
+        ? "Pilih spreadsheet yang ingin ditampilkan dalam mode read-only."
+        : "Pilih spreadsheet yang ingin diambil ke data lokal.";
+  }
+
+  const lastId = getLastSpreadsheetSource();
+
+  list.innerHTML = SPREADSHEET_SOURCES.map((item) => {
+    const lastText = item.id === lastId ? "Terakhir dipakai" : "Klik untuk memilih";
+    return `
+      <button type="button" class="sheet-option" onclick="selectSheetSource('${escapeAttr(item.id)}')">
+        <div class="sheet-option-title">${escapeHtml(item.label)}</div>
+        <div class="sheet-option-sub">${escapeHtml(lastText)}</div>
+      </button>
+    `;
+  }).join("");
+
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeSheetPicker() {
+  const modal = $("sheetPickerModal");
+  if (modal) modal.classList.add("hidden");
+  document.body.classList.remove("modal-open");
+}
+
+function openConfirmImport(source) {
+  pendingSheetSource = source || null;
+
+  const modal = $("confirmImportModal");
+  const text = $("confirmImportText");
+
+  if (!modal || !source) return;
+
+  if (text) {
+    text.textContent = `Data lokal saat ini akan ditimpa dengan data dari "${source.label}".`;
+  }
+
+  modal.classList.remove("hidden");
+  document.body.classList.add("modal-open");
+}
+
+function closeConfirmImport() {
+  const modal = $("confirmImportModal");
+  if (modal) modal.classList.add("hidden");
+
+  pendingSheetSource = null;
+  document.body.classList.remove("modal-open");
+}
+
+function selectSheetSource(sourceId) {
+  const source = SPREADSHEET_SOURCES.find((x) => x.id === sourceId);
+  if (!source) return;
+
+  closeSheetPicker();
+
+  if (pendingSheetAction === "preview") {
+    doPreviewFromSpreadsheet(source);
+    return;
+  }
+
+  openConfirmImport(source);
+}
+
+async function confirmImportSelected() {
+  const source = pendingSheetSource;
+  if (!source) return;
+
+  closeConfirmImport();
+  await doImportFromSpreadsheet(source);
+}
+
+/* =========================
+   CSV parser
+========================= */
+
+function csvToObjects(csvText) {
+  const rows = [];
+  let row = [];
+  let cell = "";
+  let inQuotes = false;
+
+  for (let i = 0; i < csvText.length; i++) {
+    const char = csvText[i];
+    const next = csvText[i + 1];
+
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
+    }
+  }
+
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
+  }
+
+  if (!rows.length) return [];
+
+  const headers = rows[0].map((h) => String(h || "").trim());
+
+  return rows
+    .slice(1)
+    .filter((r) => r.some((v) => String(v || "").trim() !== ""))
+    .map((r) => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        obj[h] = r[i] ?? "";
+      });
+      return obj;
+    });
+}
+
 /* =========================
    Events
 ========================= */
@@ -1255,9 +1190,9 @@ function bindTrainingEvents() {
 }
 
 function bindImportEvents() {
-  $("excelInput")?.addEventListener("change", async (e) => {
+  $("jsonInput")?.addEventListener("change", async (e) => {
     const file = e.target.files?.[0];
-    await importExcelFile(file);
+    await importJsonFile(file);
     e.target.value = "";
   });
 }
@@ -1284,26 +1219,13 @@ async function initApp() {
   bindImportEvents();
   bindBeforeUnload();
 
-  // kalau local kosong, baru ambil dari spreadsheet
-  if (!db || Object.keys(db).length === 0) {
-    const ok = await loadDataFromSpreadsheet(true);
-
-    if (!ok) {
-      db = defaultData();
-      ensureDbValid();
-      refreshBabSelects();
-      renderTable();
-      updateStats();
-      setStorageStatus("Default", "warn");
-      showStatus("Pakai data bawaan", "warn");
-      return;
-    }
-  }
-
   ensureDbValid();
   refreshBabSelects();
   renderTable();
   updateStats();
+
+  setStorageStatus("Lokal", "ok");
+  showStatus("Data lokal aktif", "ok");
 }
 
 /* =========================
@@ -1325,11 +1247,19 @@ window.hideAll = hideAll;
 window.sortHideFirst = sortHideFirst;
 window.pasteFromTextArea = pasteFromTextArea;
 
-window.loadDataFromSpreadsheet = loadDataFromSpreadsheet;
-window.saveActiveBabToSpreadsheet = saveActiveBabToSpreadsheet;
 window.saveLocal = saveLocal;
-
 window.saveJsonFile = saveJsonFile;
 window.triggerImportJson = triggerImportJson;
+
+window.importFromSpreadsheet = importFromSpreadsheet;
+window.previewFromSpreadsheet = previewFromSpreadsheet;
+window.closePreviewMode = closePreviewMode;
+
+window.openSheetPicker = openSheetPicker;
+window.closeSheetPicker = closeSheetPicker;
+window.selectSheetSource = selectSheetSource;
+window.openConfirmImport = openConfirmImport;
+window.closeConfirmImport = closeConfirmImport;
+window.confirmImportSelected = confirmImportSelected;
 
 document.addEventListener("DOMContentLoaded", initApp);
