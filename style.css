@@ -31,7 +31,7 @@ body{
 .app{
   width:min(100%, 520px);
   margin:0 auto;
-  padding:24px;
+  padding:4px;
 }
 
 .topbar{display:flex;gap:12px;align-items:center;justify-content:space-between;margin-bottom:16px}
@@ -273,7 +273,11 @@ tr.selected{outline:2px solid rgba(255,184,77,.6);outline-offset:-2px}
   gap:10px;
 }
 
-.latihan-action-row button{width:100%}
+.latihan-action-row button {
+  width: 100%;
+  min-width: 0;
+}
+
 
 input.answer-ok{
   border-color:var(--ok)!important;
@@ -421,34 +425,30 @@ body.modal-open{overflow:hidden}
     width:100%;
     max-width:100%;
     margin:0;
-    padding:36px;
+    padding:2px;
   }
-
-  .topbar{align-items:flex-start}
-  .grid2{grid-template-columns:1fr}
-  .mobile-actions{grid-template-columns:1fr}
-  .row button{flex:1 1 140px}
 
   .card{
     width:100%;
-    padding:12px;
-    border-radius:18px;
+    padding:10px;
+    border-radius:16px;
   }
-
-  table{min-width:680px}
+}
+@media (max-width:700px){
+  table{min-width:520px}
 }
 
-@media (max-width:420px){
-  .latihan-action-row {
-    grid-template-columns:1fr 1fr;
-  }
+.latihan-action-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
 }
 
 @media (min-width:900px){
   .app{
     width:min(100%, 980px);
     margin:0 auto;
-    padding:24px;
+    padding:4px;
   }
 
   #latihanPage .latihan-card{
@@ -475,9 +475,10 @@ body.modal-open{overflow:hidden}
     grid-area:actions;
   }
 
-  #latihanPage .warn.latihan-full-button{
-    grid-area:penak;
-  }
+/* tombol wes apal tetap full */
+.warn.latihan-full-button {
+  width: 100%;
+}
 
   #latihanPage .kanji-box{
     grid-area:kanji;
@@ -507,5 +508,13 @@ body.modal-open{overflow:hidden}
 
   .answer-hint{
     font-size:18px;
+  }
+}
+@media (max-width: 420px) {
+  .latihan-action-row button,
+  .warn.latihan-full-button,
+  #cekJawabanBtn {
+    font-size: 14px;
+    padding: 10px 12px;
   }
 }
