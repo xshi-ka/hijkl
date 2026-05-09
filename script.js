@@ -1,7 +1,7 @@
 const STORAGE_KEY = "kotobaTrainerHtmlData.v1";
 const SETTINGS_KEY = "kotobaTrainerHtmlSettings.v1";
 const LAST_SOURCE_KEY = "kotobaLastSpreadsheetSourceId.v1";
-
+const SESSION_POOL_LIMIT = 10;
 const SPREADSHEET_SOURCES = [
   {
     id: "sp1",
@@ -30,6 +30,7 @@ let localBabBeforePreview = "";
 
 let pendingSheetAction = "";
 let pendingSheetSource = null;
+let activeSessionPool = [];
 
 /* =========================
    Helpers
@@ -85,11 +86,11 @@ function showStatus(message, type = "info") {
 
 function defaultData() {
   return {
-    "PM Bab1": [
+    "Contoh 1": [
       { hide: false, kanji: "学校", kana: "がっこう", romaji: "gakkou", arti: "Sekolah" },
       { hide: false, kanji: "先生", kana: "せんせい", romaji: "sensei", arti: "Guru" }
     ],
-    "PM Bab2": [
+    "Contoh 2": [
       { hide: false, kanji: "水", kana: "みず", romaji: "mizu", arti: "Air" },
       { hide: false, kanji: "火", kana: "ひ", romaji: "hi", arti: "Api" }
     ]
@@ -275,12 +276,14 @@ async function doImportFromSpreadsheet(source) {
 
     const importedDb = await fetchSpreadsheetDb(source);
 
-    db = importedDb;
-    activeBab = Object.keys(db)[0] || "";
-    previewMode = false;
-    previewDb = {};
-    previewSourceLabel = "";
-    localBabBeforePreview = "";
+db = importedDb;
+activeBab = Object.keys(db)[0] || "";
+previewMode = false;
+previewDb = {};
+previewSourceLabel = "";
+localBabBeforePreview = "";
+queue = [];
+activeSessionPool = [];
 
     ensureDbValid();
     refreshBabSelects();
@@ -348,6 +351,9 @@ function closePreviewMode() {
 
   localBabBeforePreview = "";
 
+  queue = [];
+  activeSessionPool = [];
+
   ensureDbValid();
   refreshBabSelects();
   renderTable();
@@ -395,6 +401,7 @@ function setActiveBab(value) {
 
   activeBab = value;
   queue = [];
+  activeSessionPool = [];
   selectedRows.clear();
 
   const babSelect = $("babSelect");
@@ -444,6 +451,8 @@ function startLatihan() {
 
   saveSettings();
   queue = [];
+  activeSessionPool = [];
+  refillSessionPool();
 
   const activeBabText = $("activeBabText");
   if (activeBabText) {
@@ -498,14 +507,15 @@ function clearAnswerColors() {
 }
 
 function nextQuestion() {
-  const items = activeItems();
+  refillSessionPool();
+
   const kanjiText = $("kanjiText");
   const kanaBox = $("kanaBox");
   const romajiInput = $("romajiInput");
   const artiInput = $("artiInput");
   const cekJawabanBtn = $("cekJawabanBtn");
 
-  if (items.length === 0) {
+  if (activeSessionPool.length === 0) {
     current = null;
 
     if (kanjiText) kanjiText.textContent = "Data kosong";
@@ -521,7 +531,7 @@ function nextQuestion() {
   }
 
   if (queue.length === 0) {
-    queue = shuffle(items);
+    queue = shuffle(activeSessionPool);
   }
 
   current = queue.shift();
@@ -723,7 +733,18 @@ function penak() {
     item.hide = true;
   }
 
-  queue = queue.filter((x) => x !== current);
+  const currentKey = `${current.kanji}|${current.kana}|${current.romaji}|${current.arti}`;
+
+  activeSessionPool = activeSessionPool.filter(
+    (x) => `${x.kanji}|${x.kana}|${x.romaji}|${x.arti}` !== currentKey
+  );
+
+  queue = queue.filter(
+    (x) => `${x.kanji}|${x.kana}|${x.romaji}|${x.arti}` !== currentKey
+  );
+
+  refillSessionPool();
+
   saveLocal({ skipRender: true });
   nextQuestion();
 }
@@ -896,6 +917,29 @@ function pasteFromTextArea() {
   saveLocal();
 }
 
+function refillSessionPool() {
+  const allAvailable = activeItems();
+
+  const usedKeys = new Set(
+    activeSessionPool.map(
+      (x) => `${x.kanji}|${x.kana}|${x.romaji}|${x.arti}`
+    )
+  );
+
+  const remaining = allAvailable.filter(
+    (x) => !usedKeys.has(`${x.kanji}|${x.kana}|${x.romaji}|${x.arti}`)
+  );
+
+  const shuffledRemaining = shuffle(remaining);
+
+  while (
+    activeSessionPool.length < SESSION_POOL_LIMIT &&
+    shuffledRemaining.length > 0
+  ) {
+    activeSessionPool.push(shuffledRemaining.shift());
+  }
+}
+
 /* =========================
    JSON file
 ========================= */
@@ -954,10 +998,12 @@ async function importJsonFile(file) {
 
     sortHideAsc = !!parsed.sortHideAsc;
 
-    previewMode = false;
-    previewDb = {};
-    previewSourceLabel = "";
-    localBabBeforePreview = "";
+previewMode = false;
+previewDb = {};
+previewSourceLabel = "";
+localBabBeforePreview = "";
+queue = [];
+activeSessionPool = [];
 
     ensureDbValid();
     refreshBabSelects();
