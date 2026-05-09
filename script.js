@@ -4,13 +4,18 @@ const LAST_SOURCE_KEY = "kotobaLastSpreadsheetSourceId.v1";
 const SESSION_POOL_LIMIT = 10;
 const SPREADSHEET_SOURCES = [
   {
+    id: "sp4",
+    label: "N2 (Source APK Migi lek gk salah)",
+    url: "https://docs.google.com/spreadsheets/d/1mTMUzI1rsu7XaFGvHwEOItDXa-zpO-EeOqFhZRKUpsk/export?format=csv&gid=0"
+  },
+  {
     id: "sp3",
-    label: "N3",
+    label: "N3 (Source FB lek gk salah)",
     url: "https://docs.google.com/spreadsheets/d/11X2py3lyV1DDLLIpnkC6XLvnNRHY8yh3qvaBtxZkxMg/export?format=csv&gid=0"
   },
   {
     id: "sp1",
-    label: "N4",
+    label: "N4 (Source lali aku ko ngendi)",
     url: "https://docs.google.com/spreadsheets/d/1en_L8gmNtW07nQ3CfvNF1pVX2BJldN0sid23OzTiVVs/export?format=csv&gid=0"
   },
   {
