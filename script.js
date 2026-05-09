@@ -1,7 +1,12 @@
 const STORAGE_KEY = "kotobaTrainerHtmlData.v1";
 const SETTINGS_KEY = "kotobaTrainerHtmlSettings.v1";
-const SPREADSHEET_API_URL = "https://script.google.com/macros/s/AKfycbxo1khFrkItYEe9ZJs1DULP1aXtYRbXI_55zT2qvvwzeu8hxATqpIKI9mzmW2Ks8bJm/exec";
-const SPREADSHEET_API_TOKEN = "xshi-kotoba-token";
+
+const SPREADSHEET_API_URL = "";
+const SPREADSHEET_API_TOKEN = "";
+
+// Pakai CSV Google Sheet publik
+const SPREADSHEET_CSV_URL =
+  "https://docs.google.com/spreadsheets/d/1147-w0dWCnVqdB2ZbMqQJ2Yc-79w73w8tjZwK9gwPBM/export?format=csv&gid=0";
 
 let db = {};
 let activeBab = "";
@@ -10,245 +15,446 @@ let queue = [];
 let sudahCek = false;
 let selectedRows = new Set();
 let sortHideAsc = false;
+let syncTimer = null;
+let isSyncing = false;
 
-function defaultData(){
+/* =========================
+   Helpers
+========================= */
+
+function $(id) {
+  return document.getElementById(id);
+}
+
+function qs(selector) {
+  return document.querySelector(selector);
+}
+
+function qsa(selector) {
+  return Array.from(document.querySelectorAll(selector));
+}
+
+function norm(value) {
+  return String(value || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+}
+
+function escapeHtml(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function escapeAttr(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
+
+function showToast(message) {
+  console.log(message);
+}
+
+function setStorageStatus(source, type = "info") {
+  const el = $("storageStatus");
+  if (!el) return;
+
+  el.textContent = source;
+  el.dataset.type = type;
+}
+
+function showStatus(message, type = "info") {
+  const el = $("syncStatus");
+  if (!el) return;
+
+  el.textContent = message;
+  el.dataset.type = type;
+}
+
+function debounceSync() {
+  clearTimeout(syncTimer);
+  syncTimer = setTimeout(() => {
+    saveActiveBabToSpreadsheet(true);
+  }, 800);
+}
+
+/* =========================
+   Default data
+========================= */
+
+function defaultData() {
   return {
     "PM Bab1": [
-      {hide:false, kanji:"学校", kana:"がっこう", romaji:"gakkou", arti:"Sekolah"},
-      {hide:false, kanji:"先生", kana:"せんせい", romaji:"sensei", arti:"Guru"}
+      {
+        hide: false,
+        kanji: "学校",
+        kana: "がっこう",
+        romaji: "gakkou",
+        arti: "Sekolah",
+      },
+      {
+        hide: false,
+        kanji: "先生",
+        kana: "せんせい",
+        romaji: "sensei",
+        arti: "Guru",
+      },
     ],
     "PM Bab2": [
-      {hide:false, kanji:"水", kana:"みず", romaji:"mizu", arti:"Air"},
-      {hide:false, kanji:"火", kana:"ひ", romaji:"hi", arti:"Api"}
-    ]
+      {
+        hide: false,
+        kanji: "水",
+        kana: "みず",
+        romaji: "mizu",
+        arti: "Air",
+      },
+      {
+        hide: false,
+        kanji: "火",
+        kana: "ひ",
+        romaji: "hi",
+        arti: "Api",
+      },
+    ],
   };
 }
 
-function loadLocal(){
-  try{
-    const raw = localStorage.getItem(STORAGE_KEY);
-    db = raw ? JSON.parse(raw) : defaultData();
-  }catch{
+function normalizeItem(item) {
+  return {
+    hide: !!item?.hide,
+    kanji: String(item?.kanji ?? "").trim(),
+    kana: String(item?.kana ?? "").trim(),
+    romaji: String(item?.romaji ?? "").trim(),
+    arti: String(item?.arti ?? "").trim(),
+  };
+}
+
+function normalizeDb(input) {
+  const result = {};
+  if (!input || typeof input !== "object") return result;
+
+  for (const [babName, items] of Object.entries(input)) {
+    if (!Array.isArray(items)) continue;
+    result[String(babName)] = items.map(normalizeItem);
+  }
+
+  return result;
+}
+
+function ensureDbValid() {
+  db = normalizeDb(db);
+
+  if (!db || Object.keys(db).length === 0) {
     db = defaultData();
   }
 
-  if(!db || Object.keys(db).length === 0){
-    db = defaultData();
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+  if (!activeBab || !db[activeBab]) {
+    activeBab = Object.keys(db)[0] || "";
   }
-
-  const st = getSettings();
-  activeBab = st.lastBab && db[st.lastBab] ? st.lastBab : Object.keys(db)[0] || "";
-
-  refreshBabSelects();
 }
 
-function saveLocal(){
-  localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-  saveSettings();
-  renderTable();
-  saveActiveBabToSpreadsheet(true);
-}
+/* =========================
+   Settings & local
+========================= */
 
-function getSettings(){
-  try{
+function getSettings() {
+  try {
     return JSON.parse(localStorage.getItem(SETTINGS_KEY) || "{}");
-  }catch{
+  } catch {
     return {};
   }
 }
 
-function saveSettings(){
-  localStorage.setItem(SETTINGS_KEY, JSON.stringify({lastBab:activeBab}));
+function saveSettings() {
+  try {
+    localStorage.setItem(
+      SETTINGS_KEY,
+      JSON.stringify({
+        lastBab: activeBab,
+        sortHideAsc,
+      })
+    );
+  } catch (err) {
+    console.warn("Gagal simpan settings:", err);
+  }
 }
 
-function refreshBabSelects(){
-  const babSelect = document.getElementById("babSelect");
-  const babKelola = document.getElementById("babKelolaSelect");
-
-  if(!db || Object.keys(db).length === 0){
-    db = defaultData();
+function loadLocal() {
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    db = raw ? normalizeDb(JSON.parse(raw)) : {};
+  } catch {
+    db = {};
   }
 
-  [babSelect, babKelola].forEach(sel => {
-    if(!sel) return;
+  const st = getSettings();
+  sortHideAsc = !!st.sortHideAsc;
 
-    sel.innerHTML = "";
+  if (Object.keys(db).length > 0) {
+    activeBab = st.lastBab && db[st.lastBab] ? st.lastBab : Object.keys(db)[0] || "";
+    ensureDbValid();
+    refreshBabSelects();
+    setStorageStatus("Lokal", "ok");
+    showStatus("Data lokal ditemukan", "ok");
+  } else {
+    activeBab = "";
+    setStorageStatus("Belum ada", "warn");
+    showStatus("Data lokal kosong", "warn");
+  }
+}
 
-    Object.keys(db).forEach(name => {
+function saveLocal(options = {}) {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+    saveSettings();
+
+    setStorageStatus("Lokal", "ok");
+    showStatus("Tersimpan di lokal", "ok");
+  } catch (err) {
+    console.warn("Gagal simpan local:", err);
+    showStatus("Gagal simpan lokal", "warn");
+  }
+
+  if (!options.skipRender) {
+    renderTable();
+  }
+}
+
+/* =========================
+   BAB handling
+========================= */
+
+function refreshBabSelects() {
+  ensureDbValid();
+
+  const babNames = Object.keys(db || {});
+  const babSelect = $("babSelect");
+  const babKelolaSelect = $("babKelolaSelect");
+
+  if (babNames.length === 0) return;
+
+  function fillSelect(selectEl) {
+    if (!selectEl) return;
+
+    const selectedValue = selectEl.value || activeBab || babNames[0];
+
+    selectEl.innerHTML = "";
+
+    babNames.forEach((name) => {
       const opt = document.createElement("option");
       opt.value = name;
       opt.textContent = name;
-      sel.appendChild(opt);
+      selectEl.appendChild(opt);
     });
 
-    sel.value = activeBab;
-  });
+    if (db[selectedValue]) {
+      selectEl.value = selectedValue;
+    } else {
+      selectEl.value = babNames[0];
+    }
+  }
+
+  fillSelect(babSelect);
+  fillSelect(babKelolaSelect);
 }
 
-document.getElementById("babSelect")?.addEventListener("change", e => {
-  activeBab = e.target.value;
-  saveSettings();
+function setActiveBab(value) {
+  if (!db[value]) return;
+
+  activeBab = value;
   queue = [];
-});
-
-document.getElementById("babKelolaSelect")?.addEventListener("change", e => {
-  activeBab = e.target.value;
-  saveSettings();
   selectedRows.clear();
-  renderTable();
-  refreshBabSelects();
-});
 
-function showPage(id){
-  ["welcomePage","latihanPage","kelolaPage"].forEach(x => {
-    const el = document.getElementById(x);
-    if(el) el.classList.add("hidden");
-  });
+  const babSelect = $("babSelect");
+  const babKelolaSelect = $("babKelolaSelect");
 
-  document.getElementById(id)?.classList.remove("hidden");
+  if (babSelect) babSelect.value = value;
+  if (babKelolaSelect) babKelolaSelect.value = value;
+
+  saveSettings();
+  updateStats();
 }
 
-function goWelcome(){
+
+/* =========================
+   Page nav
+========================= */
+
+function showPage(id) {
+  ["welcomePage", "latihanPage", "kelolaPage"].forEach((pageId) => {
+    const el = $(pageId);
+    if (el) el.classList.add("hidden");
+  });
+
+  $(id)?.classList.remove("hidden");
+}
+
+function goWelcome() {
   refreshBabSelects();
   showPage("welcomePage");
 }
 
-function openKelola(){
-  const babSelect = document.getElementById("babSelect");
-  activeBab = babSelect?.value || activeBab;
+function openKelola() {
+  const babSelect = $("babSelect");
+  if (babSelect?.value && db[babSelect.value]) {
+    activeBab = babSelect.value;
+  }
+
   refreshBabSelects();
   renderTable();
   showPage("kelolaPage");
 }
 
-function startLatihan(){
-  const babSelect = document.getElementById("babSelect");
-  activeBab = babSelect?.value || activeBab;
-  saveSettings();
+function startLatihan() {
+  const babSelect = $("babSelect");
+  if (babSelect?.value && db[babSelect.value]) {
+    activeBab = babSelect.value;
+  }
 
+  saveSettings();
   queue = [];
 
-  const activeBabText = document.getElementById("activeBabText");
-  if(activeBabText) activeBabText.textContent = "List kotoba yang akan diacak: " + activeBab;
+  const activeBabText = $("activeBabText");
+  if (activeBabText) {
+    activeBabText.textContent = "List kotoba yang akan diacak: " + activeBab;
+  }
 
   showPage("latihanPage");
   nextQuestion();
 }
 
-function activeItems(){
-  return (db[activeBab] || []).filter(x => !x.hide && x.kanji && x.romaji && x.arti);
+/* =========================
+   Training
+========================= */
+
+function activeItems() {
+  return (db[activeBab] || []).filter(
+    (x) => !x.hide && x.kanji && x.romaji && x.arti
+  );
 }
 
-function shuffle(arr){
+function shuffle(arr) {
   const a = [...arr];
-
-  for(let i = a.length - 1; i > 0; i--){
+  for (let i = a.length - 1; i > 0; i -= 1) {
     const j = Math.floor(Math.random() * (i + 1));
     [a[i], a[j]] = [a[j], a[i]];
   }
-
   return a;
 }
 
-function clearAnswerColors(){
-  const romajiInput = document.getElementById("romajiInput");
-  const artiInput = document.getElementById("artiInput");
-  const answerHint = document.getElementById("answerHint");
-  const kanaBox = document.getElementById("kanaBox");
+function clearAnswerColors() {
+  const romajiInput = $("romajiInput");
+  const artiInput = $("artiInput");
+  const answerHint = $("answerHint");
+  const kanaBox = $("kanaBox");
 
-  [romajiInput, artiInput].forEach(input => {
-    if(!input) return;
-
+  [romajiInput, artiInput].forEach((input) => {
+    if (!input) return;
     input.classList.remove("answer-ok", "answer-bad", "answer-warn");
-
     input.style.borderColor = "";
     input.style.boxShadow = "";
     input.style.background = "";
   });
 
-  if(answerHint){
+  if (answerHint) {
     answerHint.className = "answer-hint";
     answerHint.textContent = "";
   }
 
-  if(kanaBox){
+  if (kanaBox) {
     kanaBox.classList.remove("kana-ok", "kana-bad");
   }
 }
 
-function nextQuestion(){
+function nextQuestion() {
   const items = activeItems();
+  const kanjiText = $("kanjiText");
+  const kanaBox = $("kanaBox");
+  const romajiInput = $("romajiInput");
+  const artiInput = $("artiInput");
+  const cekJawabanBtn = $("cekJawabanBtn");
 
-  const kanjiText = document.getElementById("kanjiText");
-  const kanaBox = document.getElementById("kanaBox");
-  const romajiInput = document.getElementById("romajiInput");
-  const artiInput = document.getElementById("artiInput");
-
-  if(items.length === 0){
+  if (items.length === 0) {
     current = null;
 
-    if(kanjiText) kanjiText.textContent = "Data kosong";
-    if(kanaBox) kanaBox.textContent = "";
-
-    if(romajiInput) romajiInput.value = "";
-    if(artiInput) artiInput.value = "";
+    if (kanjiText) kanjiText.textContent = "Data kosong";
+    if (kanaBox) kanaBox.textContent = "";
+    if (romajiInput) romajiInput.value = "";
+    if (artiInput) artiInput.value = "";
 
     clearAnswerColors();
     sudahCek = false;
-      const cekJawabanBtn = document.getElementById("cekJawabanBtn");
-      if(cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
+
+    if (cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
     return;
   }
 
-  if(queue.length === 0) queue = shuffle(items);
+  if (queue.length === 0) {
+    queue = shuffle(items);
+  }
 
   current = queue.shift();
 
-  if(kanjiText) kanjiText.textContent = current.kanji;
-  if(kanaBox) kanaBox.textContent = "";
-
-  if(romajiInput) romajiInput.value = "";
-  if(artiInput) artiInput.value = "";
+  if (kanjiText) kanjiText.textContent = current.kanji;
+  if (kanaBox) kanaBox.textContent = "";
+  if (romajiInput) romajiInput.value = "";
+  if (artiInput) artiInput.value = "";
 
   clearAnswerColors();
-
   sudahCek = false;
 
-const cekJawabanBtn = document.getElementById("cekJawabanBtn");
-if(cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
+  if (cekJawabanBtn) cekJawabanBtn.textContent = "Cek Jawaban";
 
-setTimeout(() => romajiInput?.focus(), 50);
+  setTimeout(() => {
+    romajiInput?.focus();
+  }, 50);
 }
 
-function showKana(){
-  if(current){
-    const kanaBox = document.getElementById("kanaBox");
-    if(kanaBox) kanaBox.textContent = current.kana || "";
-  }
+function showKana() {
+  if (!current) return;
+  const kanaBox = $("kanaBox");
+  if (kanaBox) kanaBox.textContent = current.kana || "";
 }
 
-function hideKana(){
-  const kanaBox = document.getElementById("kanaBox");
-  if(kanaBox) kanaBox.textContent = "";
+function hideKana() {
+  const kanaBox = $("kanaBox");
+  if (kanaBox) kanaBox.textContent = "";
 }
 
-function norm(s){
-  return String(s || "").trim().toLowerCase().replace(/\s+/g, "");
-}
-
-function rootSimple(s){
+function rootSimple(s) {
   let k = norm(s);
 
-  for(const p of ["meng","meny","men","mem","ber","ter","per","pe","me","di","ke","se"]){
-    if(k.startsWith(p) && k.length > p.length + 3){
+  for (const p of [
+    "meng",
+    "meny",
+    "men",
+    "mem",
+    "ber",
+    "ter",
+    "per",
+    "pe",
+    "me",
+    "di",
+    "ke",
+    "se",
+  ]) {
+    if (k.startsWith(p) && k.length > p.length + 3) {
       k = k.slice(p.length);
       break;
     }
   }
 
-  for(const suf of ["kan","nya","lah","an","i"]){
-    if(k.endsWith(suf) && k.length > suf.length + 3){
+  for (const suf of ["kan", "nya", "lah", "an", "i"]) {
+    if (k.endsWith(suf) && k.length > suf.length + 3) {
       k = k.slice(0, -suf.length);
       break;
     }
@@ -257,17 +463,19 @@ function rootSimple(s){
   return k;
 }
 
-function levenshtein(a,b){
+function levenshtein(a, b) {
   a = norm(a);
   b = norm(b);
 
-  const dp = Array(a.length + 1).fill(null).map(() => Array(b.length + 1).fill(0));
+  const dp = Array(a.length + 1)
+    .fill(null)
+    .map(() => Array(b.length + 1).fill(0));
 
-  for(let i = 0; i <= a.length; i++) dp[i][0] = i;
-  for(let j = 0; j <= b.length; j++) dp[0][j] = j;
+  for (let i = 0; i <= a.length; i += 1) dp[i][0] = i;
+  for (let j = 0; j <= b.length; j += 1) dp[0][j] = j;
 
-  for(let i = 1; i <= a.length; i++){
-    for(let j = 1; j <= b.length; j++){
+  for (let i = 1; i <= a.length; i += 1) {
+    for (let j = 1; j <= b.length; j += 1) {
       const cost = a[i - 1] === b[j - 1] ? 0 : 1;
       dp[i][j] = Math.min(
         dp[i - 1][j] + 1,
@@ -280,105 +488,42 @@ function levenshtein(a,b){
   return dp[a.length][b.length];
 }
 
-function statusArti(user, correctList){
+function statusArti(user, correctList) {
   const u = norm(user);
-  if(!u) return "salah";
+  if (!u) return "salah";
 
-  for(const answer of String(correctList || "").split("|")){
+  for (const answer of String(correctList || "").split("|")) {
     const c = norm(answer);
 
-    if(u === c) return "benar";
+    if (u === c) return "benar";
 
-    if(u.length >= 4 && c.length >= 4){
-      if(u.includes(c) || c.includes(u)) return "hampir";
+    if (u.length >= 4 && c.length >= 4) {
+      if (u.includes(c) || c.includes(u)) return "hampir";
 
       const ru = rootSimple(u);
       const rc = rootSimple(c);
 
-      if(ru === rc || ru.includes(rc) || rc.includes(ru)) return "hampir";
+      if (ru === rc || ru.includes(rc) || rc.includes(ru)) return "hampir";
 
       const sim = 1 - levenshtein(u, c) / Math.max(u.length, c.length);
-      if(sim >= .75) return "hampir";
+      if (sim >= 0.75) return "hampir";
     }
   }
 
   return "salah";
 }
-function handleCekJawaban(){
-  if(sudahCek){
-    nextQuestion();
-    return;
-  }
 
-  cekJawaban();
-}
-function cekJawaban(){
-  if(!current) return;
+function setInputStatus(input, status) {
+  if (!input) return;
 
-  const romajiInput = document.getElementById("romajiInput");
-  const artiInput = document.getElementById("artiInput");
-  const answerHint = document.getElementById("answerHint");
-
-  if(!romajiInput || !artiInput) return;
-
-  const romajiUser = romajiInput.value;
-  const artiUser = artiInput.value;
-
-  const romajiOk = norm(romajiUser) === norm(current.romaji);
-  const artiStatus = statusArti(artiUser, current.arti);
-  const kanaBox = document.getElementById("kanaBox");
-
-  clearAnswerColors();
-
-  if(romajiOk){
-    setInputStatus(romajiInput, "ok");
-  }else{
-    setInputStatus(romajiInput, "bad");
-  }
-
-  if(artiStatus === "benar"){
-    setInputStatus(artiInput, "ok");
-  }else if(artiStatus === "hampir"){
-    setInputStatus(artiInput, "warn");
-  }else{
-    setInputStatus(artiInput, "bad");
-  }
-
- if(answerHint){
-    if(romajiOk && artiStatus === "benar"){
-      answerHint.className = "answer-hint show-ok";
-    }else if(romajiOk && artiStatus === "hampir"){
-      answerHint.className = "answer-hint show-warn";
-    }else{
-      answerHint.className = "answer-hint show-bad";
-    }
-
-    answerHint.textContent =
-      "Romaji: " + current.romaji + "\n" +
-      "Arti: " + current.arti;
-  }
-
-  if(kanaBox){
-    kanaBox.classList.remove("kana-ok", "kana-bad");
-    kanaBox.classList.add(romajiOk ? "kana-ok" : "kana-bad");
-  }
-
- showKana();
-
-sudahCek = true;
-
-const cekJawabanBtn = document.getElementById("cekJawabanBtn");
-if(cekJawabanBtn) cekJawabanBtn.textContent = "Soal Selanjutnya";
-}
-function setInputStatus(input, status){
-  if(status === "ok"){
+  if (status === "ok") {
     input.style.borderColor = "var(--ok)";
     input.style.boxShadow = "0 0 0 3px rgba(69, 232, 139, .25)";
     input.style.background = "rgba(69, 232, 139, .08)";
     return;
   }
 
-  if(status === "warn"){
+  if (status === "warn") {
     input.style.borderColor = "var(--warn)";
     input.style.boxShadow = "0 0 0 3px rgba(255, 184, 77, .25)";
     input.style.background = "rgba(255, 184, 77, .08)";
@@ -390,101 +535,158 @@ function setInputStatus(input, status){
   input.style.background = "rgba(255, 95, 126, .08)";
 }
 
-function penak(){
-  if(!current) return;
+function cekJawaban() {
+  if (!current) return;
 
-  const arr = db[activeBab] || [];
-  const item = arr.find(x =>
-    x.kanji === current.kanji &&
-    x.kana === current.kana &&
-    x.romaji === current.romaji &&
-    x.arti === current.arti
-  );
+  const romajiInput = $("romajiInput");
+  const artiInput = $("artiInput");
+  const answerHint = $("answerHint");
+  const kanaBox = $("kanaBox");
 
-  if(item) item.hide = true;
+  if (!romajiInput || !artiInput) return;
 
-  queue = queue.filter(x => x !== current);
+  const romajiUser = romajiInput.value;
+  const artiUser = artiInput.value;
 
-  nextQuestion();
+  const romajiOk = norm(romajiUser) === norm(current.romaji);
+  const artiStatus = statusArti(artiUser, current.arti);
+
+  clearAnswerColors();
+
+  setInputStatus(romajiInput, romajiOk ? "ok" : "bad");
+
+  if (artiStatus === "benar") {
+    setInputStatus(artiInput, "ok");
+  } else if (artiStatus === "hampir") {
+    setInputStatus(artiInput, "warn");
+  } else {
+    setInputStatus(artiInput, "bad");
+  }
+
+  if (answerHint) {
+    if (romajiOk && artiStatus === "benar") {
+      answerHint.className = "answer-hint show-ok";
+    } else if (romajiOk && artiStatus === "hampir") {
+      answerHint.className = "answer-hint show-warn";
+    } else {
+      answerHint.className = "answer-hint show-bad";
+    }
+
+    answerHint.textContent = `Romaji: ${current.romaji}\nArti: ${current.arti}`;
+  }
+
+  if (kanaBox) {
+    kanaBox.classList.remove("kana-ok", "kana-bad");
+    kanaBox.classList.add(romajiOk ? "kana-ok" : "kana-bad");
+  }
+
+  showKana();
+  sudahCek = true;
+
+  const cekJawabanBtn = $("cekJawabanBtn");
+  if (cekJawabanBtn) cekJawabanBtn.textContent = "Soal Selanjutnya";
 }
 
-document.getElementById("romajiInput")?.addEventListener("keydown", e => {
-  if(e.key === "Enter" || e.key === "ArrowDown"){
-    e.preventDefault();
-    document.getElementById("artiInput")?.focus();
-  }
-});
-
-document.getElementById("artiInput")?.addEventListener("keydown", e => {
-  if(e.key === "ArrowUp"){
-    e.preventDefault();
-    document.getElementById("romajiInput")?.focus();
+function handleCekJawaban() {
+  if (sudahCek) {
+    nextQuestion();
     return;
   }
 
-if(e.key === "Enter"){
-  e.preventDefault();
-  handleCekJawaban();
+  cekJawaban();
 }
-});
 
-document.addEventListener("keydown", e => {
-  const latihanPage = document.getElementById("latihanPage");
-  if(!latihanPage || latihanPage.classList.contains("hidden")) return;
+function penak() {
+  if (!current) return;
 
-  if(e.key === "1"){
-    e.preventDefault();
-    penak();
+  const arr = db[activeBab] || [];
+  const item = arr.find(
+    (x) =>
+      x.kanji === current.kanji &&
+      x.kana === current.kana &&
+      x.romaji === current.romaji &&
+      x.arti === current.arti
+  );
+
+  if (item) {
+    item.hide = true;
   }
 
-  if(e.key === "Tab"){
-    e.preventDefault();
-    showKana();
-  }
-});
+  queue = queue.filter((x) => x !== current);
+  saveLocal({ skipRender: true });
+  nextQuestion();
+}
 
-document.addEventListener("keyup", e => {
-  if(e.key === "Tab") hideKana();
-});
+/* =========================
+   Table / kelola
+========================= */
 
-function renderTable(){
-  const tbody = document.querySelector("#dataTable tbody");
-  if(!tbody) return;
+function renderTable() {
+  const tbody = qs("#dataTable tbody");
+  if (!tbody) return;
+
+  ensureDbValid();
 
   tbody.innerHTML = "";
-
   const arr = db[activeBab] || [];
 
   arr.forEach((item, idx) => {
     const tr = document.createElement("tr");
 
-    if(selectedRows.has(idx)) tr.classList.add("selected");
+    if (selectedRows.has(idx)) {
+      tr.classList.add("selected");
+    }
 
     tr.innerHTML = `
-      <td><input type="checkbox" ${item.hide ? "checked" : ""} data-field="hide"></td>
-      <td><input type="text" value="${escapeAttr(item.kanji)}" data-field="kanji"></td>
-      <td><input type="text" value="${escapeAttr(item.kana)}" data-field="kana"></td>
-      <td><input type="text" value="${escapeAttr(item.romaji)}" data-field="romaji"></td>
-      <td><input type="text" value="${escapeAttr(item.arti)}" data-field="arti"></td>`;
+      <td>
+        <input type="checkbox" data-field="hide" ${item.hide ? "checked" : ""} />
+      </td>
+      <td>
+        <input type="text" data-field="kanji" value="${escapeAttr(item.kanji)}" />
+      </td>
+      <td>
+        <input type="text" data-field="kana" value="${escapeAttr(item.kana)}" />
+      </td>
+      <td>
+        <input type="text" data-field="romaji" value="${escapeAttr(item.romaji)}" />
+      </td>
+      <td>
+        <input type="text" data-field="arti" value="${escapeAttr(item.arti)}" />
+      </td>
+    `;
 
-    tr.addEventListener("click", ev => {
-      if(ev.target.tagName === "INPUT") return;
+    tr.addEventListener("click", (ev) => {
+      if (ev.target instanceof HTMLInputElement) return;
 
-      selectedRows.has(idx) ? selectedRows.delete(idx) : selectedRows.add(idx);
+      if (selectedRows.has(idx)) {
+        selectedRows.delete(idx);
+      } else {
+        selectedRows.add(idx);
+      }
+
       renderTable();
     });
 
-    tr.querySelectorAll("input").forEach(input => {
+    tr.querySelectorAll("input").forEach((input) => {
       input.addEventListener("change", () => {
-        const f = input.dataset.field;
-        item[f] = f === "hide" ? input.checked : input.value;
+        const field = input.dataset.field;
+        if (!field) return;
+
+        item[field] = field === "hide" ? input.checked : input.value;
         updateStats();
+        saveLocal({ skipRender: true });
       });
 
       input.addEventListener("input", () => {
-        const f = input.dataset.field;
-        if(f !== "hide") item[f] = input.value;
+        const field = input.dataset.field;
+        if (!field || field === "hide") return;
+
+        item[field] = input.value;
         updateStats();
+      });
+
+      input.addEventListener("blur", () => {
+        saveLocal({ skipRender: true });
       });
     });
 
@@ -494,347 +696,575 @@ function renderTable(){
   updateStats();
 }
 
-function escapeAttr(s){
-  return String(s || "")
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-function updateStats(){
+function updateStats() {
   const arr = db[activeBab] || [];
-  const data = arr.filter(x => x.kanji || x.kana || x.romaji || x.arti);
-  const hafal = data.filter(x => x.hide).length;
+  const data = arr.filter((x) => x.kanji || x.kana || x.romaji || x.arti);
+  const hafal = data.filter((x) => x.hide).length;
 
-  const statTotal = document.getElementById("statTotal");
-  const statHafal = document.getElementById("statHafal");
-  const statLali = document.getElementById("statLali");
+  const statTotal = $("statTotal");
+  const statHafal = $("statHafal");
+  const statLali = $("statLali");
 
-  if(statTotal) statTotal.textContent = data.length;
-  if(statHafal) statHafal.textContent = hafal;
-  if(statLali) statLali.textContent = data.length - hafal;
+  if (statTotal) statTotal.textContent = data.length;
+  if (statHafal) statHafal.textContent = hafal;
+  if (statLali) statLali.textContent = data.length - hafal;
 }
 
-function addRow(){
-  if(!db[activeBab]) db[activeBab] = [];
 
-  db[activeBab].push({hide:false, kanji:"", kana:"", romaji:"", arti:""});
-  renderTable();
-}
-
-function deleteSelected(){
-  const arr = db[activeBab] || [];
-
-  if(selectedRows.size === 0){
-    alert("Pilih baris dulu dengan klik area baris.");
-    return;
-  }
-
-  db[activeBab] = arr.filter((_, idx) => !selectedRows.has(idx));
-  selectedRows.clear();
+function hideAll(value) {
+  (db[activeBab] || []).forEach((x) => {
+    x.hide = value;
+  });
 
   renderTable();
+  saveLocal();
 }
 
-function hideAll(value){
-  (db[activeBab] || []).forEach(x => x.hide = value);
-  renderTable();
-}
-
-function sortHideFirst(){
+function sortHideFirst() {
   sortHideAsc = !sortHideAsc;
 
-  db[activeBab] = (db[activeBab] || []).sort((a,b) => {
+  db[activeBab] = (db[activeBab] || []).sort((a, b) => {
     const hideA = a.hide ? 1 : 0;
     const hideB = b.hide ? 1 : 0;
 
-    if(sortHideAsc){
-      // Klik kedua: yang belum hide di atas
+    if (sortHideAsc) {
       return hideA - hideB || String(a.kanji).localeCompare(String(b.kanji));
     }
 
-    // Klik pertama: yang sudah hide di atas
     return hideB - hideA || String(a.kanji).localeCompare(String(b.kanji));
   });
 
   selectedRows.clear();
   renderTable();
+  saveLocal({ skipSpreadsheet: true });
 }
 
-function pasteFromTextArea(){
-  const pasteBox = document.getElementById("pasteBox");
+function pasteFromTextArea() {
+  const pasteBox = $("pasteBox");
   const text = pasteBox?.value.trim() || "";
 
-  if(!text) return;
+  if (!text) return;
 
   const rows = text.replace(/\r\n/g, "\n").split("\n");
 
-  if(!db[activeBab]) db[activeBab] = [];
+  if (!db[activeBab]) db[activeBab] = [];
 
-  rows.forEach(r => {
-    const p = r.split("\t");
-
-    if(p.length >= 4){
+  rows.forEach((row) => {
+    const p = row.split("\t");
+    if (p.length >= 4) {
       db[activeBab].push({
-        hide:false,
-        kanji:p[0]?.trim() || "",
-        kana:p[1]?.trim() || "",
-        romaji:p[2]?.trim() || "",
-        arti:p.slice(3).join(" ").trim() || ""
+        hide: false,
+        kanji: p[0]?.trim() || "",
+        kana: p[1]?.trim() || "",
+        romaji: p[2]?.trim() || "",
+        arti: p.slice(3).join(" ").trim() || "",
       });
     }
   });
 
-  pasteBox.value = "";
+  if (pasteBox) pasteBox.value = "";
+
   renderTable();
+  saveLocal();
 }
 
-document.getElementById("excelInput")?.addEventListener("change", async e => {
-  const file = e.target.files[0];
-  if(!file) return;
+/* =========================
+   Excel import / export
+========================= */
 
-  if(typeof XLSX === "undefined"){
-    alert("Library Excel belum kebaca. Pastikan internet aktif saat import/export Excel.");
+function rowsToSheetData(rows) {
+  return [
+    ["Hide", "Kanji", "Kana", "Romaji", "Arti"],
+    ...rows.map((x) => [
+      x.hide ? 1 : 0,
+      x.kanji,
+      x.kana,
+      x.romaji,
+      x.arti,
+    ]),
+  ];
+}
+
+async function importExcelFile(file) {
+  if (!file) return;
+
+  if (typeof XLSX === "undefined") {
+    alert("Library Excel belum kebaca.");
     return;
   }
 
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf);
-  const next = {};
+  const buffer = await file.arrayBuffer();
+  const wb = XLSX.read(buffer, { type: "array" });
 
-  wb.SheetNames.forEach(name => {
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[name], {header:1, defval:""});
-    const dataRows = rows.slice(1);
-
-    next[name] = dataRows.map(r => {
-      const first = String(r[0] ?? "").trim().toLowerCase();
-      const hasHide =
-        first === "true" ||
-        first === "false" ||
-        first === "1" ||
-        first === "0" ||
-        typeof r[0] === "boolean";
-
-      if(hasHide){
-        return {
-          hide:parseBool(r[0]),
-          kanji:r[1] || "",
-          kana:r[2] || "",
-          romaji:r[3] || "",
-          arti:r[4] || ""
-        };
-      }
-
-      return {
-        hide:false,
-        kanji:r[0] || "",
-        kana:r[1] || "",
-        romaji:r[2] || "",
-        arti:r[3] || ""
-      };
-    }).filter(x => x.kanji || x.kana || x.romaji || x.arti);
-  });
-
-  db = next;
-
-  if(!db || Object.keys(db).length === 0){
-    db = defaultData();
+  const firstSheetName = wb.SheetNames[0];
+  if (!firstSheetName) {
+    alert("Sheet Excel tidak ditemukan.");
+    return;
   }
 
-  activeBab = Object.keys(db)[0] || "";
+  const ws = wb.Sheets[firstSheetName];
+  const rows = XLSX.utils.sheet_to_json(ws, { header: 1 });
 
+  if (!db[activeBab]) db[activeBab] = [];
+
+  const imported = [];
+  for (let i = 1; i < rows.length; i += 1) {
+    const row = rows[i];
+    if (!row || row.length === 0) continue;
+
+    const item = normalizeItem({
+      hide:
+        row[0] === true ||
+        row[0] === 1 ||
+        String(row[0] || "").toLowerCase() === "true",
+      kanji: row[1],
+      kana: row[2],
+      romaji: row[3],
+      arti: row[4],
+    });
+
+    if (!item.kanji && !item.kana && !item.romaji && !item.arti) continue;
+    imported.push(item);
+  }
+
+  db[activeBab].push(...imported);
+  renderTable();
   saveLocal();
-  refreshBabSelects();
 
-  alert("Import berhasil.");
-});
-
-function parseBool(v){
-  if(typeof v === "boolean") return v;
-
-  const s = String(v || "").trim().toLowerCase();
-  return ["true","1","ya","y","checked"].includes(s);
+  alert(`Import berhasil: ${imported.length} data.`);
 }
 
-function downloadExcel(){
-  if(typeof XLSX === "undefined"){
-    alert("Library Excel belum kebaca. Pastikan internet aktif saat export Excel.");
+function exportExcel() {
+  if (typeof XLSX === "undefined") {
+    alert("Library Excel belum kebaca.");
     return;
   }
 
   const wb = XLSX.utils.book_new();
 
-  Object.keys(db).forEach(name => {
-    const rows = [["Hide","Kanji","Kana","Romaji","Arti"]];
+  for (const [babName, rows] of Object.entries(db)) {
+    const data = rowsToSheetData(rows);
+    const ws = XLSX.utils.aoa_to_sheet(data);
+    XLSX.utils.book_append_sheet(wb, ws, babName.slice(0, 31));
+  }
 
-    (db[name] || []).forEach(x => rows.push([
-      !!x.hide,
-      x.kanji,
-      x.kana,
-      x.romaji,
-      x.arti
-    ]));
+  XLSX.writeFile(wb, "xshi-kotoba.xlsx");
+}
 
-    const ws = XLSX.utils.aoa_to_sheet(rows);
-    XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+function exportJson() {
+  const blob = new Blob([JSON.stringify(db, null, 2)], {
+    type: "application/json",
   });
+  const url = URL.createObjectURL(blob);
 
-  XLSX.writeFile(wb, "data.xlsx");
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "xshi-kotoba.json";
+  a.click();
+
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
 
-function resetData(){
-  if(!confirm("Reset data lokal browser?")) return;
+function resetData() {
+  const ok = confirm("Reset semua data ke bawaan awal?");
+  if (!ok) return;
 
-  localStorage.removeItem(STORAGE_KEY);
-  localStorage.removeItem(SETTINGS_KEY);
+  db = defaultData();
+  activeBab = Object.keys(db)[0] || "";
+  queue = [];
+  selectedRows.clear();
 
-  loadLocal();
-  goWelcome();
+  refreshBabSelects();
+  renderTable();
+  saveLocal();
 }
-function parseCsvLine(line){
+
+/* =========================
+   Spreadsheet sync
+========================= */
+
+async function safeFetchJson(url, options = {}) {
+  const res = await fetch(url, options);
+  if (!res.ok) {
+    throw new Error(`HTTP ${res.status}`);
+  }
+  return res.json();
+}
+
+function extractDbFromSpreadsheetPayload(payload) {
+  if (!payload) return null;
+
+  if (payload.db && typeof payload.db === "object") {
+    return normalizeDb(payload.db);
+  }
+
+  if (payload.data && typeof payload.data === "object" && !Array.isArray(payload.data)) {
+    return normalizeDb(payload.data);
+  }
+
+  if (typeof payload === "object" && !Array.isArray(payload)) {
+    const values = Object.values(payload);
+    const seemsDb =
+      Object.keys(payload).length > 0 &&
+      values.every((v) => Array.isArray(v));
+    if (seemsDb) {
+      return normalizeDb(payload);
+    }
+  }
+
+  return null;
+}
+
+async function loadDataFromSpreadsheet(silent = true) {
+  if (!SPREADSHEET_CSV_URL) return false;
+
+  try {
+    showStatus("Mengambil data spreadsheet...", "info");
+
+    const res = await fetch(SPREADSHEET_CSV_URL, {
+      method: "GET",
+      cache: "no-store",
+    });
+
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}`);
+    }
+
+    const csvText = await res.text();
+    const rows = csvToObjects(csvText);
+
+    if (!rows.length) {
+      showStatus("Spreadsheet kosong", "warn");
+      return false;
+    }
+
+    const grouped = {};
+
+    rows.forEach((row) => {
+      const bab = String(row.Bab || row.bab || "").trim();
+      if (!bab) return;
+
+      const item = {
+        hide:
+          String(row.Hide || row.hide || "").trim().toLowerCase() === "true" ||
+          String(row.Hide || row.hide || "").trim() === "1",
+        kanji: String(row.Kanji || row.kanji || "").trim(),
+        kana: String(row.Kana || row.kana || "").trim(),
+        romaji: String(row.Romaji || row.romaji || "").trim(),
+        arti: String(row.Arti || row.arti || "").trim(),
+      };
+
+      if (!item.kanji && !item.kana && !item.romaji && !item.arti) return;
+
+      if (!grouped[bab]) grouped[bab] = [];
+      grouped[bab].push(item);
+    });
+
+    if (Object.keys(grouped).length === 0) {
+      showStatus("Format spreadsheet tidak cocok", "warn");
+      return false;
+    }
+
+      const oldBab = activeBab;
+      db = normalizeDb(grouped);
+ensureDbValid();
+
+if (oldBab && db[oldBab]) {
+  activeBab = oldBab;
+} else {
+  activeBab = Object.keys(db)[0] || "";
+}
+
+localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+saveSettings();
+
+refreshBabSelects();
+renderTable();
+updateStats();
+
+setStorageStatus("Spreadsheet", "ok");
+showStatus("Data awal diambil dari spreadsheet", "ok");
+
+return true;
+  } catch (err) {
+    console.warn("Gagal load spreadsheet:", err);
+
+      setStorageStatus("Lokal", "warn");
+      showStatus("Gagal ambil spreadsheet", "warn");
+
+  if (!silent) {
+    alert("Gagal mengambil data dari spreadsheet.");
+  }
+
+  return false;
+  }
+}
+function parseCsvLine(line) {
   const result = [];
   let current = "";
   let inQuotes = false;
 
-  for(let i = 0; i < line.length; i++){
-    const char = line[i];
+  for (let i = 0; i < line.length; i++) {
+    const ch = line[i];
     const next = line[i + 1];
 
-    if(char === '"' && inQuotes && next === '"'){
-      current += '"';
-      i++;
-      continue;
-    }
-
-    if(char === '"'){
-      inQuotes = !inQuotes;
-      continue;
-    }
-
-    if(char === "," && !inQuotes){
+    if (ch === '"') {
+      if (inQuotes && next === '"') {
+        current += '"';
+        i++;
+      } else {
+        inQuotes = !inQuotes;
+      }
+    } else if (ch === "," && !inQuotes) {
       result.push(current);
       current = "";
-      continue;
+    } else {
+      current += ch;
     }
-
-    current += char;
   }
 
   result.push(current);
   return result;
 }
 
-function parseCsv(text){
+function csvToObjects(csvText) {
   const rows = [];
-  let currentLine = "";
+  let row = [];
+  let cell = "";
   let inQuotes = false;
 
-  for(let i = 0; i < text.length; i++){
-    const char = text[i];
-    const next = text[i + 1];
+  for (let i = 0; i < csvText.length; i++) {
+    const char = csvText[i];
+    const next = csvText[i + 1];
 
-    if(char === '"' && inQuotes && next === '"'){
-      currentLine += '""';
-      i++;
-      continue;
-    }
-
-    if(char === '"'){
-      inQuotes = !inQuotes;
-    }
-
-    if((char === "\n" || char === "\r") && !inQuotes){
-      if(currentLine.trim()){
-        rows.push(parseCsvLine(currentLine));
-      }
-
-      currentLine = "";
-
-      if(char === "\r" && next === "\n"){
+    if (char === '"') {
+      if (inQuotes && next === '"') {
+        cell += '"';
         i++;
+      } else {
+        inQuotes = !inQuotes;
       }
-
-      continue;
+    } else if (char === "," && !inQuotes) {
+      row.push(cell);
+      cell = "";
+    } else if ((char === "\n" || char === "\r") && !inQuotes) {
+      if (char === "\r" && next === "\n") i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else {
+      cell += char;
     }
-
-    currentLine += char;
   }
 
-  if(currentLine.trim()){
-    rows.push(parseCsvLine(currentLine));
+  if (cell.length > 0 || row.length > 0) {
+    row.push(cell);
+    rows.push(row);
   }
 
-  return rows;
-}
-const SPREADSHEET_CSV_URL = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ4AkdnfIK7QcuWVnP4P_ZNKzl0tMPynEwLYEAnhyoL3j_OubjMj7D5QAv8U2rQQkMkHiZT-zlPJAYh/pub?gid=0&single=true&output=csv";
-async function loadDataFromSpreadsheet(){
-  try{
-    const response = await fetch(SPREADSHEET_API_URL);
+  if (!rows.length) return [];
 
-    if(!response.ok){
-      throw new Error("Gagal mengambil data spreadsheet.");
-    }
+  const headers = rows[0].map(h => String(h || "").trim());
 
-    const result = await response.json();
-
-    if(!result.success){
-      throw new Error(result.message || "Gagal membaca data spreadsheet.");
-    }
-
-    const next = result.data;
-
-    if(!next || Object.keys(next).length === 0){
-      throw new Error("Data spreadsheet kosong.");
-    }
-
-    db = next;
-    activeBab = Object.keys(db)[0] || "";
-
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
-    saveSettings();
-    refreshBabSelects();
-
-  }catch(err){
-    console.error(err);
-    alert("Gagal mengambil data dari Spreadsheet:\n" + err.message);
-  }
-}
-async function saveActiveBabToSpreadsheet(showSuccessMessage = false){
-  try{
-    const items = db[activeBab] || [];
-
-    const response = await fetch(SPREADSHEET_API_URL, {
-      method: "POST",
-      headers: {
-        "Content-Type": "text/plain;charset=utf-8"
-      },
-      body: JSON.stringify({
-        token: SPREADSHEET_API_TOKEN,
-        bab: activeBab,
-        items: items
-      })
+  return rows
+    .slice(1)
+    .filter(r => r.some(v => String(v || "").trim() !== ""))
+    .map(r => {
+      const obj = {};
+      headers.forEach((h, i) => {
+        obj[h] = r[i] ?? "";
+      });
+      return obj;
     });
+}
 
-    const result = await response.json();
+async function postSpreadsheetJson(payload) {
+  return safeFetchJson(SPREADSHEET_API_URL, {
+    method: "POST",
+    headers: {
+      "Content-Type": "text/plain;charset=utf-8",
+    },
+    body: JSON.stringify(payload),
+  });
+}
 
-    if(!result.success){
-      throw new Error(result.message || "Gagal simpan ke spreadsheet.");
+async function saveActiveBabToSpreadsheet(silent = true) {
+  if (!SPREADSHEET_API_URL || !SPREADSHEET_API_TOKEN) return false;
+  if (isSyncing) return false;
+
+  isSyncing = true;
+
+  try {
+    showStatus("Menyimpan ke spreadsheet...", "info");
+
+    const payload = {
+      token: SPREADSHEET_API_TOKEN,
+      action: "save",
+      activeBab,
+      db: deepClone(db),
+      rows: deepClone(db[activeBab] || []),
+      updatedAt: new Date().toISOString(),
+    };
+
+    await postSpreadsheetJson(payload);
+
+    showStatus("Tersimpan ke spreadsheet", "ok");
+    return true;
+  } catch (err) {
+    console.warn("Gagal simpan spreadsheet:", err);
+    showStatus("Gagal simpan spreadsheet", "warn");
+    if (!silent) {
+      alert("Gagal menyimpan ke Spreadsheet.");
     }
-
-    if(showSuccessMessage){
-      alert("Data lokal dan spreadsheet berhasil disimpan.");
-    }
-  }catch(err){
-    console.error(err);
-
-    if(showSuccessMessage){
-      alert("Data lokal tersimpan, tapi gagal kirim ke spreadsheet:\n" + err.message);
-    }else{
-      throw err;
-    }
+    return false;
+  } finally {
+    isSyncing = false;
   }
 }
-loadLocal();
-loadDataFromSpreadsheet();
 
+/* =========================
+   Events
+========================= */
+
+function bindSelectEvents() {
+  const babSelect = $("babSelect");
+  const babKelolaSelect = $("babKelolaSelect");
+
+  if (babSelect) {
+    babSelect.addEventListener("change", function () {
+      setActiveBab(this.value);
+    });
+  }
+
+  if (babKelolaSelect) {
+    babKelolaSelect.addEventListener("change", function () {
+      setActiveBab(this.value);
+      renderTable();
+    });
+  }
+}
+
+function bindTrainingEvents() {
+  $("romajiInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" || e.key === "ArrowDown") {
+      e.preventDefault();
+      $("artiInput")?.focus();
+    }
+  });
+
+  $("artiInput")?.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      $("romajiInput")?.focus();
+      return;
+    }
+
+    if (e.key === "Enter") {
+      e.preventDefault();
+      handleCekJawaban();
+    }
+  });
+
+  document.addEventListener("keydown", (e) => {
+    const latihanPage = $("latihanPage");
+    if (!latihanPage || latihanPage.classList.contains("hidden")) return;
+
+    if (e.key === "1") {
+      e.preventDefault();
+      penak();
+    }
+
+    if (e.key === "Tab") {
+      e.preventDefault();
+      showKana();
+    }
+  });
+
+  document.addEventListener("keyup", (e) => {
+    if (e.key === "Tab") {
+      hideKana();
+    }
+  });
+}
+
+function bindImportEvents() {
+  $("excelInput")?.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    await importExcelFile(file);
+    e.target.value = "";
+  });
+}
+
+function bindBeforeUnload() {
+  window.addEventListener("beforeunload", () => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(db));
+      saveSettings();
+    } catch {
+      // ignore
+    }
+  });
+}
+
+/* =========================
+   Init
+========================= */
+
+async function initApp() {
+  loadLocal();
+  bindSelectEvents();
+  bindTrainingEvents();
+  bindImportEvents();
+  bindBeforeUnload();
+
+  // kalau local kosong, baru ambil dari spreadsheet
+  if (!db || Object.keys(db).length === 0) {
+    const ok = await loadDataFromSpreadsheet(true);
+
+    if (!ok) {
+      db = defaultData();
+      ensureDbValid();
+      refreshBabSelects();
+      renderTable();
+      updateStats();
+      setStorageStatus("Default", "warn");
+      showStatus("Pakai data bawaan", "warn");
+      return;
+    }
+  }
+
+  ensureDbValid();
+  refreshBabSelects();
+  renderTable();
+  updateStats();
+}
+
+/* =========================
+   Expose globals
+========================= */
+
+window.showPage = showPage;
+window.goWelcome = goWelcome;
+window.openKelola = openKelola;
+window.startLatihan = startLatihan;
+window.handleCekJawaban = handleCekJawaban;
+window.cekJawaban = cekJawaban;
+window.nextQuestion = nextQuestion;
+window.showKana = showKana;
+window.hideKana = hideKana;
+window.penak = penak;
+
+window.hideAll = hideAll;
+window.sortHideFirst = sortHideFirst;
+window.pasteFromTextArea = pasteFromTextArea;
+
+window.exportExcel = exportExcel;
+window.exportJson = exportJson;
+window.resetData = resetData;
+
+window.loadDataFromSpreadsheet = loadDataFromSpreadsheet;
+window.saveActiveBabToSpreadsheet = saveActiveBabToSpreadsheet;
+window.saveLocal = saveLocal;
+
+document.addEventListener("DOMContentLoaded", initApp);
