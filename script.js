@@ -1122,7 +1122,73 @@ async function saveActiveBabToSpreadsheet(silent = true) {
     isSyncing = false;
   }
 }
+function saveJsonFile() {
+  try {
+    const payload = {
+      activeBab,
+      sortHideAsc,
+      db,
+      exportedAt: new Date().toISOString(),
+    };
 
+    const blob = new Blob([JSON.stringify(payload, null, 2)], {
+      type: "application/json",
+    });
+
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = "xshi-kotoba.json";
+    a.click();
+
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+
+    showStatus("File JSON berhasil disimpan", "ok");
+  } catch (err) {
+    console.warn("Gagal simpan file JSON:", err);
+    showStatus("Gagal simpan file JSON", "warn");
+  }
+}
+
+function triggerImportJson() {
+  $("jsonInput")?.click();
+}
+
+async function importJsonFile(file) {
+  if (!file) return;
+
+  try {
+    const text = await file.text();
+    const parsed = JSON.parse(text);
+
+    const importedDb = normalizeDb(parsed.db || parsed);
+
+    if (!importedDb || Object.keys(importedDb).length === 0) {
+      alert("File JSON tidak valid atau kosong.");
+      return;
+    }
+
+    db = importedDb;
+    activeBab =
+      parsed.activeBab && db[parsed.activeBab]
+        ? parsed.activeBab
+        : Object.keys(db)[0] || "";
+
+    sortHideAsc = !!parsed.sortHideAsc;
+
+    ensureDbValid();
+    refreshBabSelects();
+    renderTable();
+    updateStats();
+    saveLocal({ skipRender: true });
+
+    showStatus("Data JSON berhasil diambil", "ok");
+  } catch (err) {
+    console.warn("Gagal ambil file JSON:", err);
+    alert("File JSON tidak valid.");
+    showStatus("Gagal ambil data JSON", "warn");
+  }
+}
 /* =========================
    Events
 ========================= */
@@ -1259,12 +1325,11 @@ window.hideAll = hideAll;
 window.sortHideFirst = sortHideFirst;
 window.pasteFromTextArea = pasteFromTextArea;
 
-window.exportExcel = exportExcel;
-window.exportJson = exportJson;
-window.resetData = resetData;
-
 window.loadDataFromSpreadsheet = loadDataFromSpreadsheet;
 window.saveActiveBabToSpreadsheet = saveActiveBabToSpreadsheet;
 window.saveLocal = saveLocal;
+
+window.saveJsonFile = saveJsonFile;
+window.triggerImportJson = triggerImportJson;
 
 document.addEventListener("DOMContentLoaded", initApp);

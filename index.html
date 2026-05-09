@@ -6,6 +6,9 @@
   <title>Xshi Kotoba</title>
   <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
   <link rel="stylesheet" href="style.css" />
+  <link rel="icon" type="image/png" sizes="32x32" href="icon-32.png" />
+  <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png" />
+  <link rel="apple-touch-icon" href="icon-192.png" />
 </head>
 <body>
   <div class="app">
@@ -23,9 +26,9 @@
 
     <section id="welcomePage" class="welcome">
       <div class="card center">
-        <div class="title-big">Hallo Hallo</div>
-        <p class="subtitle">Pilih mana yang mau dilatih.</p>
-        <p class="subtitle">Upload dulu file .xlsx, lek gk ndue WA o aku</p>
+        <div class="title-big">???????</div>
+        <p class="subtitle">Pilih data mana yang mau dilatih.</p>
+        <p class="subtitle">Lek raenek WA o aku</p>
 
         <div style="margin:16px 0; text-align:left">
           <label for="babSelect">Pilih Data Kotoba</label>
@@ -39,16 +42,11 @@
 
         <hr style="border-color:rgba(255,255,255,.08); margin:18px 0" />
 
-        <div style="text-align:left">
-          <label for="excelInput">lek ndue data.xlsx</label>
-          <input type="file" id="excelInput" accept=".xlsx,.xls" />
-        </div>
-
-        <div class="row" style="margin-top:12px">
-          <button type="button" class="secondary" onclick="exportExcel()">Export Excel</button>
-          <button type="button" class="secondary" onclick="exportJson()">Export JSON</button>
-          <button type="button" class="danger" onclick="resetData()">Reset Data</button>
-        </div>
+            <div class="row" style="margin-top:12px; flex-wrap:wrap">
+             <button type="button" class="secondary" onclick="saveJsonFile()">Simpan</button>
+             <button type="button" class="secondary" onclick="triggerImportJson()">Ambil Data</button>
+              <input type="file" id="jsonInput" accept=".json,application/json" hidden />
+            </div>
       </div>
     </section>
 
